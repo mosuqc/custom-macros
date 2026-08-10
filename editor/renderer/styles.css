@@ -1,0 +1,517 @@
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+:root {
+  --bg: #ffffff;
+  --bg-sidebar: #f3f4f6;
+  --bg-input: #ffffff;
+  --bg-step: #f9fafb;
+  --bg-step-hover: #f3f4f6;
+  --bg-selected: #e0e7ff;
+  --border: #d1d5db;
+  --border-focus: #6366f1;
+  --text: #111827;
+  --text-muted: #6b7280;
+  --text-label: #374151;
+  --primary: #4f46e5;
+  --primary-hover: #4338ca;
+  --danger: #dc2626;
+  --danger-hover: #b91c1c;
+  --warning-bg: #fef3c7;
+  --warning-text: #92400e;
+  --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --mono: "SF Mono", "Cascadia Code", "Consolas", monospace;
+  --radius: 6px;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #1f2937;
+    --bg-sidebar: #111827;
+    --bg-input: #374151;
+    --bg-step: #283141;
+    --bg-step-hover: #374151;
+    --bg-selected: #312e81;
+    --border: #4b5563;
+    --border-focus: #818cf8;
+    --text: #f9fafb;
+    --text-muted: #9ca3af;
+    --text-label: #d1d5db;
+    --primary: #818cf8;
+    --primary-hover: #6366f1;
+    --danger: #f87171;
+    --danger-hover: #ef4444;
+    --warning-bg: #451a03;
+    --warning-text: #fbbf24;
+  }
+}
+
+html, body {
+  height: 100%;
+  font-family: var(--font);
+  font-size: 14px;
+  color: var(--text);
+  background: var(--bg);
+  overflow: hidden;
+}
+
+.app {
+  display: flex;
+  height: 100vh;
+}
+
+/* ---- Sidebar ---- */
+.sidebar {
+  width: 220px;
+  min-width: 180px;
+  background: var(--bg-sidebar);
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  user-select: none;
+}
+
+.sidebar-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--border);
+}
+
+.sidebar-header h2 {
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.sidebar-header button {
+  width: 28px;
+  height: 28px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg);
+  color: var(--text);
+  font-size: 18px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+}
+.sidebar-header button:hover {
+  background: var(--primary);
+  color: #fff;
+  border-color: var(--primary);
+}
+
+.macro-list {
+  list-style: none;
+  overflow-y: auto;
+  flex: 1;
+  padding: 6px 0;
+}
+
+.macro-list li {
+  padding: 8px 14px;
+  cursor: pointer;
+  font-size: 13px;
+  border-left: 3px solid transparent;
+  transition: background 0.1s;
+}
+.macro-list li:hover {
+  background: var(--bg-step-hover);
+}
+.macro-list li.active {
+  background: var(--bg-selected);
+  border-left-color: var(--primary);
+  font-weight: 600;
+}
+.macro-list li.dirty::after {
+  content: ' •';
+  color: var(--primary);
+}
+
+/* ---- Editor Area ---- */
+.editor-area {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.empty-state {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+  font-size: 15px;
+}
+
+.editor-panel {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  padding: 16px 20px;
+  gap: 12px;
+  overflow: hidden;
+}
+
+/* Name row */
+.name-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.name-row label {
+  font-weight: 700;
+  font-size: 16px;
+  font-family: var(--mono);
+  color: var(--text-label);
+  white-space: nowrap;
+}
+.name-row input {
+  flex: 1;
+  font-size: 16px;
+  font-weight: 600;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-input);
+  color: var(--text);
+  outline: none;
+}
+.name-row input:focus {
+  border-color: var(--border-focus);
+  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.2);
+}
+
+/* Steps */
+.steps-container {
+  flex: 1;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.steps-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.step-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  background: var(--bg-step);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  transition: background 0.1s;
+}
+.step-row:hover {
+  background: var(--bg-step-hover);
+}
+
+.step-num {
+  font-family: var(--mono);
+  font-size: 13px;
+  color: var(--text-muted);
+  min-width: 28px;
+  text-align: right;
+  user-select: none;
+}
+
+.step-type-select,
+.step-subtype-select {
+  padding: 4px 6px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-input);
+  color: var(--text);
+  font-size: 13px;
+  outline: none;
+  cursor: pointer;
+}
+.step-type-select:focus,
+.step-subtype-select:focus {
+  border-color: var(--border-focus);
+}
+
+.step-content {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.step-content input[type="text"] {
+  flex: 1;
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-input);
+  color: var(--text);
+  font-size: 13px;
+  outline: none;
+  min-width: 0;
+}
+.step-content input[type="text"]:focus {
+  border-color: var(--border-focus);
+}
+
+.step-content .date-preview {
+  font-size: 12px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  font-family: var(--mono);
+}
+
+.step-content .command-display {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.step-content .command-label {
+  flex: 1;
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-input);
+  color: var(--text);
+  font-size: 13px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.step-content .command-label.empty {
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+.step-content .btn-browse {
+  padding: 4px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-input);
+  color: var(--text);
+  font-size: 12px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.step-content .btn-browse:hover {
+  background: var(--bg-step-hover);
+}
+
+.step-content .unbound-warning {
+  font-size: 11px;
+  color: var(--warning-text);
+  background: var(--warning-bg);
+  padding: 2px 6px;
+  border-radius: 3px;
+  white-space: nowrap;
+}
+
+.btn-remove-step {
+  width: 24px;
+  height: 24px;
+  border: none;
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 16px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.btn-remove-step:hover {
+  background: var(--danger);
+  color: #fff;
+}
+
+.step-comment-input {
+  flex: 1;
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-input);
+  color: var(--text-muted);
+  font-size: 13px;
+  font-style: italic;
+  outline: none;
+  min-width: 0;
+}
+.step-comment-input:focus {
+  border-color: var(--border-focus);
+  color: var(--text);
+}
+
+.btn-add-step {
+  margin-top: 4px;
+  padding: 8px;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 13px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.btn-add-step:hover {
+  background: var(--bg-step);
+  color: var(--text);
+  border-color: var(--primary);
+}
+
+/* Action bar */
+.action-bar {
+  display: flex;
+  gap: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
+
+.action-bar button {
+  padding: 6px 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-input);
+  color: var(--text);
+  font-size: 13px;
+  cursor: pointer;
+}
+.action-bar button:hover {
+  background: var(--bg-step-hover);
+}
+
+.btn-primary {
+  background: var(--primary) !important;
+  color: #fff !important;
+  border-color: var(--primary) !important;
+}
+.btn-primary:hover {
+  background: var(--primary-hover) !important;
+}
+
+.btn-danger {
+  color: var(--danger) !important;
+  border-color: var(--danger) !important;
+}
+.btn-danger:hover {
+  background: var(--danger) !important;
+  color: #fff !important;
+}
+
+/* ---- Command Browser Dialog ---- */
+.command-dialog {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 0;
+  width: 560px;
+  max-height: 70vh;
+  background: var(--bg);
+  color: var(--text);
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.2);
+}
+.command-dialog::backdrop {
+  background: rgba(0, 0, 0, 0.4);
+}
+
+.dialog-header {
+  padding: 14px 16px 10px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.dialog-header h3 {
+  font-size: 15px;
+}
+.dialog-header input {
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-input);
+  color: var(--text);
+  font-size: 13px;
+  outline: none;
+}
+.dialog-header input:focus {
+  border-color: var(--border-focus);
+}
+
+.command-list {
+  overflow-y: auto;
+  max-height: 50vh;
+  padding: 8px 0;
+}
+
+.command-group-header {
+  padding: 6px 16px 4px;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-muted);
+  background: var(--bg);
+  position: sticky;
+  top: 0;
+}
+
+.command-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 16px;
+  cursor: pointer;
+  font-size: 13px;
+}
+.command-item:hover {
+  background: var(--bg-selected);
+}
+.command-item .cmd-label {
+  flex: 1;
+}
+.command-item .cmd-key {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-muted);
+  padding: 1px 6px;
+  background: var(--bg-step);
+  border-radius: 3px;
+}
+.command-item .cmd-unbound {
+  font-size: 11px;
+  color: var(--warning-text);
+}
+
+.dialog-footer {
+  padding: 10px 16px;
+  border-top: 1px solid var(--border);
+  display: flex;
+  justify-content: flex-end;
+}
+.dialog-footer button {
+  padding: 5px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-input);
+  color: var(--text);
+  font-size: 13px;
+  cursor: pointer;
+}
+.dialog-footer button:hover {
+  background: var(--bg-step-hover);
+}

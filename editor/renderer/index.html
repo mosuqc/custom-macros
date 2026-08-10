@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'">
+  <title>Custom Macros Editor</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="app">
+    <aside class="sidebar">
+      <div class="sidebar-header">
+        <h2>Macros</h2>
+        <button id="btn-new" title="New Macro">+</button>
+      </div>
+      <ul id="macro-list" class="macro-list"></ul>
+    </aside>
+
+    <main class="editor-area">
+      <div id="empty-state" class="empty-state">
+        <p>Select a macro or create a new one</p>
+      </div>
+
+      <div id="editor-panel" class="editor-panel" hidden>
+        <div class="name-row">
+          <label for="macro-name">NAME:</label>
+          <input type="text" id="macro-name" placeholder="Macro name" spellcheck="false">
+        </div>
+
+        <div class="steps-container">
+          <div id="steps-list" class="steps-list"></div>
+          <button id="btn-add-step" class="btn-add-step">+ Add Step</button>
+        </div>
+
+        <div class="action-bar">
+          <button id="btn-save" class="btn-primary">Save</button>
+          <button id="btn-rename">Rename</button>
+          <button id="btn-delete" class="btn-danger">Delete</button>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <!-- Command browser dialog -->
+  <dialog id="command-dialog" class="command-dialog">
+    <div class="dialog-header">
+      <h3>CardMirror Commands</h3>
+      <input type="text" id="command-search" placeholder="Search commands..." spellcheck="false">
+    </div>
+    <div id="command-list" class="command-list"></div>
+    <div class="dialog-footer">
+      <button id="command-dialog-close">Cancel</button>
+    </div>
+  </dialog>
+
+  <script type="module" src="editor.js"></script>
+</body>
+</html>

@@ -1,0 +1,9 @@
+{
+  "id": "custom-macros",
+  "name": "Custom Macros",
+  "version": "1.0.0",
+  "description": "Execute multi-step macros from .cmcm files — text insertion, date formatting, and CardMirror command sequencing.",
+  "author": "qcoop",
+  "apiVersion": 1,
+  "minAppVersion": "0.1.0-beta.18"
+}

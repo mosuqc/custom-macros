@@ -465,5 +465,22 @@ macroNameInput.addEventListener('input', () => {
 window.macroAPI.onMenuNew(() => newMacro());
 window.macroAPI.onMenuSave(() => saveMacro());
 
+// ---- Build Plugin ----
+
+const btnBuild = document.getElementById('btn-build');
+btnBuild.addEventListener('click', async () => {
+  btnBuild.disabled = true;
+  btnBuild.textContent = 'Building...';
+  try {
+    const result = await window.macroAPI.buildPlugin();
+    alert(`Plugin built with ${result.count} macro(s):\n${result.names.join(', ')}\n\nRestart CardMirror to load the updated plugin.`);
+  } catch (err) {
+    alert(`Build failed: ${err.message}`);
+  } finally {
+    btnBuild.disabled = false;
+    btnBuild.textContent = 'Build Plugin';
+  }
+});
+
 // ---- Init ----
 refreshSidebar();

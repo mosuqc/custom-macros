@@ -153,3 +153,62 @@ ipcMain.handle('macros:exists', async (_event, filename) => {
     return false;
   }
 });
+
+// ---- Build Plugin ----
+
+function parseCmcmForBuild(text) {
+  const lines = text.split('\n');
+  let name = null;
+  const steps = [];
+  let foundName = false;
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (trimmed === '') continue;
+    if (!foundName) {
+      const m = trimmed.match(/^NAME:\s*(.+)$/i);
+      if (!m) continue;
+      name = m[1].trim();
+      foundName = true;
+      continue;
+    }
+    if (trimmed.startsWith('#')) {
+      steps.push({ type: 'comment', text: trimmed.slice(1).trim() });
+      continue;
+    }
+    const sc = trimmed.replace(/^\d+\.\s*/, '');
+    if (sc.startsWith('Insert:Text:')) {
+      steps.push({ type: 'insert-text', content: sc.slice(12) });
+    } else if (sc.startsWith('Insert:Date:')) {
+      steps.push({ type: 'insert-date', format: sc.slice(12) });
+    } else if (sc.startsWith('CardMirror:')) {
+      steps.push({ type: 'cardmirror', label: sc.slice(11).trim() });
+    }
+  }
+  return name ? { name, steps } : null;
+}
+
+ipcMain.handle('plugin:build', async () => {
+  ensureMacrosDir();
+  const files = (await fs.promises.readdir(MACROS_DIR)).filter(f => f.endsWith('.cmcm'));
+  const macros = [];
+  for (const file of files) {
+    try {
+      const content = await fs.promises.readFile(path.join(MACROS_DIR, file), 'utf-8');
+      const parsed = parseCmcmForBuild(content);
+      if (parsed) macros.push(parsed);
+    } catch (_) { /* skip */ }
+  }
+
+  const templatePath = path.join(__dirname, '..', 'plugin', 'plugin.js');
+  let template = await fs.promises.readFile(templatePath, 'utf-8');
+
+  const macrosJson = JSON.stringify(macros, null, 2);
+  template = template.replace(
+    /\/\/ __MACROS_START__\n\s*var MACROS = \[.*?\];\n\s*\/\/ __MACROS_END__/s,
+    '// __MACROS_START__\n  var MACROS = ' + macrosJson + ';\n  // __MACROS_END__'
+  );
+
+  await fs.promises.writeFile(templatePath, template, 'utf-8');
+  return { count: macros.length, names: macros.map(m => m.name) };
+});

@@ -134,6 +134,31 @@ html, body {
   color: var(--primary);
 }
 
+.sidebar-footer {
+  padding: 10px 14px;
+  border-top: 1px solid var(--border);
+}
+
+.btn-build {
+  width: 100%;
+  padding: 8px;
+  border: 1px solid var(--primary);
+  border-radius: var(--radius);
+  background: var(--primary);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.btn-build:hover {
+  background: var(--primary-hover);
+}
+.btn-build:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
 /* ---- Editor Area ---- */
 .editor-area {
   flex: 1;

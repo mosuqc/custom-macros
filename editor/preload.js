@@ -9,6 +9,8 @@ contextBridge.exposeInMainWorld('macroAPI', {
   renameMacro: (oldName, newName) => ipcRenderer.invoke('macros:rename', oldName, newName),
   macroExists: (filename) => ipcRenderer.invoke('macros:exists', filename),
 
+  buildPlugin: () => ipcRenderer.invoke('plugin:build'),
+
   onMenuNew: (callback) => ipcRenderer.on('menu:new', callback),
   onMenuSave: (callback) => ipcRenderer.on('menu:save', callback),
 });

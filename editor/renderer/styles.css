@@ -170,17 +170,20 @@ html, body {
 .empty-state {
   flex: 1;
   display: flex;
+  flex-direction: column;
   align-items: center;
-  justify-content: center;
+  justify-content: flex-start;
   color: var(--text-muted);
   font-size: 15px;
+  padding-top: 80px;
+  gap: 16px;
 }
 
 .editor-panel {
   flex: 1;
   display: flex;
   flex-direction: column;
-  padding: 16px 20px;
+  padding: 8px 16px;
   gap: 12px;
   overflow: hidden;
 }
@@ -234,13 +237,21 @@ html, body {
   align-items: center;
   gap: 8px;
   padding: 6px 8px;
-  background: var(--bg-step);
-  border: 1px solid var(--border);
+  background: transparent;
+  border: 1px solid transparent;
   border-radius: var(--radius);
-  transition: background 0.1s;
+  transition: background 0.1s, border-color 0.1s;
 }
 .step-row:hover {
   background: var(--bg-step-hover);
+}
+.step-row:focus-within {
+  background: var(--bg-step);
+  border-color: var(--border);
+}
+
+.step-row-control {
+  border-left: 3px solid var(--primary);
 }
 
 .step-num {
@@ -252,99 +263,111 @@ html, body {
   user-select: none;
 }
 
-.step-type-select,
-.step-subtype-select {
-  padding: 4px 6px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  background: var(--bg-input);
-  color: var(--text);
-  font-size: 13px;
-  outline: none;
-  cursor: pointer;
-}
-.step-type-select:focus,
-.step-subtype-select:focus {
-  border-color: var(--border-focus);
-}
-
-.step-content {
+.step-ac-wrapper {
+  position: relative;
   flex: 1;
-  display: flex;
-  align-items: center;
-  gap: 6px;
   min-width: 0;
 }
 
-.step-content input[type="text"] {
-  flex: 1;
-  padding: 4px 8px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  background: var(--bg-input);
-  color: var(--text);
-  font-size: 13px;
-  outline: none;
-  min-width: 0;
-}
-.step-content input[type="text"]:focus {
-  border-color: var(--border-focus);
-}
-
-.step-content .date-preview {
-  font-size: 12px;
-  color: var(--text-muted);
-  white-space: nowrap;
-  font-family: var(--mono);
-}
-
-.step-content .command-display {
-  flex: 1;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  min-width: 0;
-}
-
-.step-content .command-label {
-  flex: 1;
-  padding: 4px 8px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  background: var(--bg-input);
-  color: var(--text);
-  font-size: 13px;
-  min-width: 0;
+.step-ac-backdrop {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  pointer-events: none;
   overflow: hidden;
-  text-overflow: ellipsis;
   white-space: nowrap;
-}
-.step-content .command-label.empty {
-  color: var(--text-muted);
-  font-style: italic;
+  padding: 4px 8px;
+  font-family: var(--font);
+  font-size: 13px;
+  letter-spacing: 0;
+  background: var(--bg-input);
+  border-radius: var(--radius);
 }
 
-.step-content .btn-browse {
-  padding: 4px 10px;
+.ac-measure {
+  visibility: hidden;
+}
+
+.ac-ghost {
+  color: var(--text-muted);
+  opacity: 0.5;
+  display: inline;
+  margin-left: 0;
+}
+
+.step-ac-input {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  padding: 4px 8px;
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  background: var(--bg-input);
+  background: transparent;
   color: var(--text);
-  font-size: 12px;
-  cursor: pointer;
-  white-space: nowrap;
+  font-size: 13px;
+  font-family: var(--font);
+  outline: none;
+  min-width: 0;
 }
-.step-content .btn-browse:hover {
-  background: var(--bg-step-hover);
+.step-ac-input:focus {
+  border-color: var(--border-focus);
+  background: transparent;
 }
 
-.step-content .unbound-warning {
+.step-ac-dropdown {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  z-index: 10;
+  margin-top: 2px;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  max-height: 250px;
+  overflow-y: auto;
+}
+
+.step-ac-dropdown.hidden {
+  display: none;
+}
+
+.ac-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 8px;
+  cursor: pointer;
+  font-size: 13px;
+  gap: 8px;
+}
+.ac-item:hover,
+.ac-item.ac-active {
+  background: var(--bg-selected);
+}
+
+.ac-item .cmd-key {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-muted);
+  padding: 1px 6px;
+  background: var(--bg-step);
+  border-radius: 3px;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.ac-item .ac-unbound {
   font-size: 11px;
   color: var(--warning-text);
   background: var(--warning-bg);
-  padding: 2px 6px;
+  padding: 1px 6px;
   border-radius: 3px;
   white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .btn-remove-step {
@@ -366,22 +389,6 @@ html, body {
   color: #fff;
 }
 
-.step-comment-input {
-  flex: 1;
-  padding: 4px 8px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  background: var(--bg-input);
-  color: var(--text-muted);
-  font-size: 13px;
-  font-style: italic;
-  outline: none;
-  min-width: 0;
-}
-.step-comment-input:focus {
-  border-color: var(--border-focus);
-  color: var(--text);
-}
 
 .btn-add-step {
   margin-top: 4px;
@@ -439,104 +446,18 @@ html, body {
   color: #fff !important;
 }
 
-/* ---- Command Browser Dialog ---- */
-.command-dialog {
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  padding: 0;
-  width: 560px;
-  max-height: 70vh;
-  background: var(--bg);
-  color: var(--text);
-  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.2);
-}
-.command-dialog::backdrop {
-  background: rgba(0, 0, 0, 0.4);
-}
-
-.dialog-header {
-  padding: 14px 16px 10px;
-  border-bottom: 1px solid var(--border);
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-.dialog-header h3 {
-  font-size: 15px;
-}
-.dialog-header input {
-  padding: 6px 10px;
-  border: 1px solid var(--border);
+.btn-new-macro {
+  padding: 8px 20px;
+  border: 1px solid var(--primary);
   border-radius: var(--radius);
-  background: var(--bg-input);
-  color: var(--text);
-  font-size: 13px;
-  outline: none;
-}
-.dialog-header input:focus {
-  border-color: var(--border-focus);
-}
-
-.command-list {
-  overflow-y: auto;
-  max-height: 50vh;
-  padding: 8px 0;
-}
-
-.command-group-header {
-  padding: 6px 16px 4px;
-  font-size: 11px;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-  color: var(--text-muted);
-  background: var(--bg);
-  position: sticky;
-  top: 0;
-}
-
-.command-item {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 6px 16px;
+  background: var(--primary);
+  color: #fff;
+  font-size: 14px;
+  font-weight: 600;
   cursor: pointer;
-  font-size: 13px;
+  transition: background 0.15s;
 }
-.command-item:hover {
-  background: var(--bg-selected);
-}
-.command-item .cmd-label {
-  flex: 1;
-}
-.command-item .cmd-key {
-  font-family: var(--mono);
-  font-size: 11px;
-  color: var(--text-muted);
-  padding: 1px 6px;
-  background: var(--bg-step);
-  border-radius: 3px;
-}
-.command-item .cmd-unbound {
-  font-size: 11px;
-  color: var(--warning-text);
+.btn-new-macro:hover {
+  background: var(--primary-hover);
 }
 
-.dialog-footer {
-  padding: 10px 16px;
-  border-top: 1px solid var(--border);
-  display: flex;
-  justify-content: flex-end;
-}
-.dialog-footer button {
-  padding: 5px 14px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  background: var(--bg-input);
-  color: var(--text);
-  font-size: 13px;
-  cursor: pointer;
-}
-.dialog-footer button:hover {
-  background: var(--bg-step-hover);
-}

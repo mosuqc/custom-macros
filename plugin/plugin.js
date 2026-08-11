@@ -222,9 +222,75 @@
     editor.dispatchEvent(event);
   }
 
+  function evaluateExpression(expr, scope, api) {
+    if (expr.type === 'string') return expr.value;
+    if (expr.type === 'number') return expr.value;
+    if (expr.type === 'variable') {
+      return scope.hasOwnProperty(expr.name) ? scope[expr.name] : '';
+    }
+    if (expr.type === 'binary') {
+      var left = Number(evaluateExpression(expr.left, scope, api)) || 0;
+      var right = Number(evaluateExpression(expr.right, scope, api)) || 0;
+      if (expr.operator === '+') return left + right;
+      if (expr.operator === '-') return left - right;
+      return 0;
+    }
+    if (expr.type === 'count') {
+      if (!api._countWarned) {
+        api.showToast('Document queries require CardMirror API v2');
+        api._countWarned = true;
+      }
+      return 0;
+    }
+    return '';
+  }
+
+  function evaluateAtomicCondition(atom, scope, api) {
+    if (atom.type === 'compare') {
+      var varVal = scope.hasOwnProperty(atom.variable) ? scope[atom.variable] : '';
+      var cmpVal = atom.value.type === 'string' ? atom.value.value : atom.value.value;
+      if (atom.operator === '=') return String(varVal) === String(cmpVal);
+      if (atom.operator === '>') return Number(varVal) > Number(cmpVal);
+      if (atom.operator === '<') return Number(varVal) < Number(cmpVal);
+      return false;
+    }
+    if (atom.type === 'contains') {
+      if (!api._queryWarned) {
+        api.showToast('Document queries require CardMirror API v2');
+        api._queryWarned = true;
+      }
+      return false;
+    }
+    return false;
+  }
+
+  function evaluateCondition(condition, scope, api) {
+    for (var g = 0; g < condition.length; g++) {
+      var group = condition[g];
+      var groupResult = true;
+      for (var a = 0; a < group.length; a++) {
+        if (!evaluateAtomicCondition(group[a], scope, api)) {
+          groupResult = false;
+          break;
+        }
+      }
+      if (groupResult) return true;
+    }
+    return false;
+  }
+
   function executeMacro(macro, api) {
     var steps = macro.steps;
     var idx = 0;
+    var scope = {};
+    var ifStack = [];
+
+    function isSkipping() {
+      for (var i = 0; i < ifStack.length; i++) {
+        if (ifStack[i].skipping) return true;
+      }
+      return false;
+    }
 
     function runNext() {
       while (idx < steps.length) {
@@ -233,6 +299,45 @@
 
         if (step.type === 'comment') continue;
 
+        // Control flow steps always processed (even when skipping, to track nesting)
+        if (step.type === 'if') {
+          if (isSkipping()) {
+            ifStack.push({ branchTaken: true, skipping: true });
+          } else {
+            var ifResult = evaluateCondition(step.condition, scope, api);
+            ifStack.push({ branchTaken: ifResult, skipping: !ifResult });
+          }
+          continue;
+        }
+        if (step.type === 'elif') {
+          if (ifStack.length > 0) {
+            var topBlock = ifStack[ifStack.length - 1];
+            if (topBlock.branchTaken) {
+              topBlock.skipping = true;
+            } else {
+              var elifResult = evaluateCondition(step.condition, scope, api);
+              topBlock.branchTaken = elifResult;
+              topBlock.skipping = !elifResult;
+            }
+          }
+          continue;
+        }
+        if (step.type === 'else') {
+          if (ifStack.length > 0) {
+            var topBlock = ifStack[ifStack.length - 1];
+            topBlock.skipping = topBlock.branchTaken;
+            topBlock.branchTaken = true;
+          }
+          continue;
+        }
+        if (step.type === 'end') {
+          if (ifStack.length > 0) ifStack.pop();
+          continue;
+        }
+
+        // Executable steps skip if skipping
+        if (isSkipping()) continue;
+
         try {
           if (step.type === 'insert-text') {
             insertText(step.content);
@@ -240,6 +345,12 @@
             insertText(formatDate(step.format, new Date()));
           } else if (step.type === 'cardmirror') {
             executeCommand(step.label);
+          } else if (step.type === 'set') {
+            var exprValue = evaluateExpression(step.expression, scope, api);
+            scope[step.variable] = exprValue;
+          } else if (step.type === 'insert-var') {
+            var varValue = scope.hasOwnProperty(step.variable) ? scope[step.variable] : '';
+            insertText(String(varValue));
           }
         } catch (err) {
           api.showToast('Macro "' + macro.name + '" failed: ' + err.message);

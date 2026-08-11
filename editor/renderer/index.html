@@ -23,6 +23,7 @@
     <main class="editor-area">
       <div id="empty-state" class="empty-state">
         <p>Select a macro or create a new one</p>
+        <button id="btn-new-empty" class="btn-new-macro">New Macro</button>
       </div>
 
       <div id="editor-panel" class="editor-panel" hidden>
@@ -45,18 +46,6 @@
     </main>
   </div>
 
-  <!-- Command browser dialog -->
-  <dialog id="command-dialog" class="command-dialog">
-    <div class="dialog-header">
-      <h3>CardMirror Commands</h3>
-      <input type="text" id="command-search" placeholder="Search commands..." spellcheck="false">
-    </div>
-    <div id="command-list" class="command-list"></div>
-    <div class="dialog-footer">
-      <button id="command-dialog-close">Cancel</button>
-    </div>
-  </dialog>
-
-  <script type="module" src="editor.js"></script>
+<script type="module" src="editor.js"></script>
 </body>
 </html>

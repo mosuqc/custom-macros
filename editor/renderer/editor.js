@@ -1,6 +1,6 @@
-import { parseCmcm, serializeCmcm, ParseError } from './cmcm.js';
-import { formatDate, PRESET_FORMATS } from './date-formats.js';
-import { COMMAND_GROUPS, LABEL_TO_COMMAND, ALL_COMMANDS } from './commands.js';
+import { parseCmcm, serializeCmcm, parseCondition, parseExpression, serializeCondition, serializeExpression, VALID_ELEMENTS, validateSteps } from './cmcm.js';
+import { PRESET_FORMATS } from './date-formats.js';
+import { ALL_COMMANDS } from './commands.js';
 
 // ---- State ----
 let currentMacro = null;   // { name, steps, filename, dirty }
@@ -17,10 +17,6 @@ const btnAddStep = document.getElementById('btn-add-step');
 const btnSave = document.getElementById('btn-save');
 const btnRename = document.getElementById('btn-rename');
 const btnDelete = document.getElementById('btn-delete');
-const commandDialog = document.getElementById('command-dialog');
-const commandSearch = document.getElementById('command-search');
-const commandListEl = document.getElementById('command-list');
-const commandDialogClose = document.getElementById('command-dialog-close');
 
 // ---- Sidebar ----
 
@@ -67,7 +63,7 @@ function newMacro() {
   }
   currentMacro = {
     name: '',
-    steps: [],
+    steps: [{ type: 'incomplete', raw: '' }],
     filename: null,
     dirty: false,
   };
@@ -99,12 +95,381 @@ function markDirty() {
   }
 }
 
+// ---- Step format conversion ----
+
+function stepToText(step) {
+  if (step.type === 'comment') return `# ${step.text}`;
+  if (step.type === 'if') return `IF ${serializeCondition(step.condition)}`;
+  if (step.type === 'elif') return `ELIF ${serializeCondition(step.condition)}`;
+  if (step.type === 'else') return 'ELSE';
+  if (step.type === 'end') return 'END';
+  if (step.type === 'set') return `SET !${step.variable} = ${serializeExpression(step.expression)}`;
+  if (step.type === 'insert-var') return `Insert:!${step.variable}`;
+  if (step.type === 'insert-text') return `Insert:Text:${step.content}`;
+  if (step.type === 'insert-date') return `Insert:Date:${step.format}`;
+  if (step.type === 'cardmirror') return `CardMirror:${step.label}`;
+  if (step.type === 'incomplete') return step.raw || '';
+  return '';
+}
+
+function textToStep(text) {
+  if (text.startsWith('# ') || text === '#') return { type: 'comment', text: text.slice(1).trimStart() };
+
+  // Handle ELSE
+  if (text === 'ELSE') return { type: 'else' };
+
+  // Handle END
+  if (text === 'END') return { type: 'end' };
+
+  // Handle IF
+  if (text.startsWith('IF ')) {
+    try {
+      const condition = parseCondition(text.slice(3));
+      return { type: 'if', condition };
+    } catch (e) {
+      return { type: 'incomplete', raw: text };
+    }
+  }
+
+  // Handle ELIF
+  if (text.startsWith('ELIF ')) {
+    try {
+      const condition = parseCondition(text.slice(5));
+      return { type: 'elif', condition };
+    } catch (e) {
+      return { type: 'incomplete', raw: text };
+    }
+  }
+
+  // Handle SET
+  if (text.startsWith('SET !')) {
+    try {
+      const rest = text.slice(5);
+      const eqIdx = rest.indexOf('=');
+      if (eqIdx === -1) {
+        return { type: 'incomplete', raw: text };
+      }
+      const varname = rest.slice(0, eqIdx).trim();
+      if (!/^[a-zA-Z_]\w*$/.test(varname)) {
+        return { type: 'incomplete', raw: text };
+      }
+      const exprStr = rest.slice(eqIdx + 1).trim();
+      const expression = parseExpression(exprStr);
+      return { type: 'set', variable: varname, expression };
+    } catch (e) {
+      return { type: 'incomplete', raw: text };
+    }
+  }
+
+  // Handle Insert:!var
+  if (text.startsWith('Insert:!')) {
+    const varname = text.slice(8);
+    if (/^[a-zA-Z_]\w*$/.test(varname)) {
+      return { type: 'insert-var', variable: varname };
+    }
+  }
+
+  if (text.startsWith('Insert:Text:')) return { type: 'insert-text', content: text.slice(12) };
+  if (text.startsWith('Insert:Date:') && text.length > 12) return { type: 'insert-date', format: text.slice(12) };
+  if (text.startsWith('CardMirror:') && text.length > 11) return { type: 'cardmirror', label: text.slice(11) };
+  if (text === '') return null;
+  return { type: 'incomplete', raw: text };
+}
+
+// ---- Autocomplete state and logic ----
+
+let activeDropdownIndex = -1;
+let dropdownSelectedIndex = 0;
+
+function getDefinedVariables() {
+  if (!currentMacro) return [];
+  const vars = new Set();
+  for (const step of currentMacro.steps) {
+    if (step.type === 'set') vars.add(step.variable);
+  }
+  return [...vars];
+}
+
+function getAutocompleteContext(value) {
+  if (value === '') {
+    return {
+      phase: 'prefix',
+      items: [
+        { text: 'SET ', type: 'prefix' },
+        { text: 'IF ', type: 'prefix' },
+        { text: 'ELIF ', type: 'prefix' },
+        { text: 'ELSE', type: 'prefix' },
+        { text: 'END', type: 'prefix' },
+        { text: 'CardMirror:', type: 'prefix' },
+        { text: 'Insert:', type: 'prefix' },
+        { text: '# ', type: 'prefix' },
+      ],
+    };
+  }
+
+  const lowerValue = value.toLowerCase();
+
+  // Handle IF/ELIF conditions
+  if (lowerValue.startsWith('if ') || lowerValue.startsWith('elif ')) {
+    const isIf = lowerValue.startsWith('if ');
+    const keyword = isIf ? 'IF ' : 'ELIF ';
+    const partial = value.slice(keyword.length);
+    const lowerPartial = partial.toLowerCase();
+
+    // If empty or no dot yet, offer element names and Nearby
+    if (partial === '' || (!partial.includes('.') && !partial.startsWith('!'))) {
+      const matchingElems = VALID_ELEMENTS.filter(e => e.toLowerCase().startsWith(lowerPartial));
+      const items = matchingElems.map(elem => ({ text: elem, type: 'element', accepted: keyword + elem }));
+      if ('nearby.'.startsWith(lowerPartial)) {
+        items.push({ text: 'Nearby.', type: 'element', accepted: keyword + 'Nearby.' });
+      }
+      if ('!'.startsWith(lowerPartial)) {
+        items.push({ text: '!', type: 'element', accepted: keyword + '!' });
+      }
+      return { phase: 'if-element', items };
+    }
+
+    // After Nearby., offer element names
+    if (lowerPartial.startsWith('nearby.') && !lowerPartial.slice(7).includes('.')) {
+      const afterNearby = partial.slice(7);
+      const matchingElems = VALID_ELEMENTS.filter(e => e.toLowerCase().startsWith(afterNearby.toLowerCase()));
+      const items = matchingElems.map(elem => ({ text: elem, type: 'element', accepted: keyword + 'Nearby.' + elem }));
+      return { phase: 'if-element', items };
+    }
+
+    // If ends with element name but no dot, offer .contains
+    if (VALID_ELEMENTS.some(e => lowerPartial === e.toLowerCase() || lowerPartial === 'nearby.' + e.toLowerCase())) {
+      return { phase: 'free', items: [{ text: '.contains("', type: 'set-hint', accepted: value + '.contains("' }] };
+    }
+
+    return { phase: 'free', items: [] };
+  }
+
+  // Handle SET
+  if (lowerValue.startsWith('set !')) {
+    const rest = value.slice(5);
+    if (!rest.includes('=')) {
+      return { phase: 'free', items: [] };
+    }
+    const eqPos = rest.indexOf('=');
+    const afterEq = rest.slice(eqPos + 1).trim();
+    if (afterEq === '') {
+      const prefix = value.slice(0, value.indexOf('=') + 1) + ' ';
+      const definedVars = getDefinedVariables();
+      const items = [
+        { text: '"', type: 'set-hint', accepted: prefix + '"' },
+        { text: 'COUNT(', type: 'set-hint', accepted: prefix + 'COUNT(' },
+      ];
+      for (const varname of definedVars) {
+        items.push({ text: '!' + varname, type: 'set-hint', accepted: prefix + '!' + varname });
+      }
+      return { phase: 'free', items };
+    }
+    return { phase: 'free', items: [] };
+  }
+
+  // Prefix matching (before any colon is typed)
+  if (!value.includes(':') && !value.startsWith('#')) {
+    const prefixes = [
+      { text: 'SET ', match: 'set' },
+      { text: 'IF ', match: 'if' },
+      { text: 'ELIF ', match: 'elif' },
+      { text: 'ELSE', match: 'else' },
+      { text: 'END', match: 'end' },
+      { text: 'CardMirror:', match: 'cardmirror' },
+      { text: 'Insert:', match: 'insert' },
+    ];
+    const matching = prefixes.filter(p => p.match.startsWith(lowerValue));
+    if (matching.length > 0) {
+      return {
+        phase: 'prefix',
+        items: matching.map(m => ({ text: m.text, type: 'prefix' })),
+      };
+    }
+  }
+
+  // CardMirror command phase
+  if (lowerValue.startsWith('cardmirror:')) {
+    const partial = value.slice(11);
+    const lowerPartial = partial.toLowerCase();
+    const matches = ALL_COMMANDS.filter(cmd =>
+      cmd.label.toLowerCase().includes(lowerPartial)
+    );
+    matches.sort((a, b) => {
+      const aPrefix = a.label.toLowerCase().startsWith(lowerPartial);
+      const bPrefix = b.label.toLowerCase().startsWith(lowerPartial);
+      if (aPrefix !== bPrefix) return bPrefix ? 1 : -1;
+      return 0;
+    });
+    return {
+      phase: 'cardmirror',
+      items: matches.map(cmd => ({
+        text: cmd.label,
+        keybind: cmd.defaultKey,
+        type: 'command',
+      })),
+    };
+  }
+
+  // Insert phase
+  if (lowerValue.startsWith('insert:')) {
+    const partial = value.slice(7);
+    const lowerPartial = partial.toLowerCase();
+
+    // Show subtype options
+    if (partial === '') {
+      return {
+        phase: 'insert-subtype',
+        items: [
+          { text: 'Text:', type: 'subtype' },
+          { text: 'Date:', type: 'subtype' },
+          { text: '!', type: 'subtype' },
+        ],
+      };
+    }
+
+    // Insert:! — variable names
+    if (lowerPartial.startsWith('!')) {
+      const definedVars = getDefinedVariables();
+      const varPartial = partial.slice(1).toLowerCase();
+      const matching = definedVars.filter(v => v.toLowerCase().startsWith(varPartial));
+      return {
+        phase: 'free',
+        items: matching.map(v => ({ text: v, type: 'variable' })),
+      };
+    }
+
+    // Partial subtype matching
+    if (!partial.includes(':')) {
+      const subtypes = [
+        { text: 'Text:', match: 'text' },
+        { text: 'Date:', match: 'date' },
+      ];
+      const matching = subtypes.filter(s => s.match.startsWith(lowerPartial));
+      if (matching.length > 0) {
+        return {
+          phase: 'insert-subtype',
+          items: matching.map(m => ({ text: m.text, type: 'subtype' })),
+        };
+      }
+    }
+
+    // Insert:Text: — free text, no autocomplete
+    if (lowerPartial.startsWith('text:')) {
+      return { phase: 'free', items: [] };
+    }
+
+    // Insert:Date: — preset suggestions
+    if (lowerPartial.startsWith('date:')) {
+      const datePartial = partial.slice(5);
+      const lowerDatePartial = datePartial.toLowerCase();
+      const matches = PRESET_FORMATS.filter(p =>
+        p.format.toLowerCase().startsWith(lowerDatePartial) ||
+        p.label.toLowerCase().includes(lowerDatePartial)
+      );
+      matches.sort((a, b) => {
+        const aPrefix = a.format.toLowerCase().startsWith(lowerDatePartial);
+        const bPrefix = b.format.toLowerCase().startsWith(lowerDatePartial);
+        if (aPrefix !== bPrefix) return bPrefix ? 1 : -1;
+        return 0;
+      });
+      return {
+        phase: 'insert-date-preset',
+        items: matches.map(preset => ({
+          text: preset.label,
+          example: preset.example,
+          format: preset.format,
+          type: 'preset',
+        })),
+      };
+    }
+  }
+
+  // Comment — free text
+  if (value.startsWith('#')) {
+    return { phase: 'free', items: [] };
+  }
+
+  return { phase: 'unknown', items: [] };
+}
+
+function ghostForItem(inputValue, item) {
+  if (!item) return '';
+  if (item.type === 'prefix') {
+    if (item.text.toLowerCase().startsWith(inputValue.toLowerCase())) {
+      return item.text.slice(inputValue.length);
+    }
+    return '';
+  }
+  if (item.type === 'element') {
+    // For IF/ELIF element suggestions
+    const keywordLen = inputValue.toLowerCase().startsWith('elif ') ? 5 : 3;
+    const partial = inputValue.slice(keywordLen);
+    if (item.text.toLowerCase().startsWith(partial.toLowerCase())) {
+      return item.text.slice(partial.length);
+    }
+    return '';
+  }
+  if (item.type === 'subtype') {
+    const partial = inputValue.slice(7);
+    if (item.text.toLowerCase().startsWith(partial.toLowerCase())) {
+      return item.text.slice(partial.length);
+    }
+    return '';
+  }
+  if (item.type === 'command') {
+    const partial = inputValue.slice(11);
+    if (item.text.toLowerCase().startsWith(partial.toLowerCase())) {
+      return item.text.slice(partial.length);
+    }
+    return '';
+  }
+  if (item.type === 'preset') {
+    const partial = inputValue.slice(12);
+    if (item.format.toLowerCase().startsWith(partial.toLowerCase())) {
+      return item.format.slice(partial.length);
+    }
+    return '';
+  }
+  if (item.type === 'set-hint') {
+    return '';
+  }
+  if (item.type === 'variable') {
+    return '';
+  }
+  return '';
+}
+
+function acceptedValue(item) {
+  if (item.accepted) return item.accepted;
+  if (item.type === 'prefix') return item.text;
+  if (item.type === 'subtype') {
+    if (item.text === '!') return 'Insert:!';
+    return `Insert:${item.text}`;
+  }
+  if (item.type === 'command') return `CardMirror:${item.text}`;
+  if (item.type === 'preset') return `Insert:Date:${item.format}`;
+  if (item.type === 'variable') return `Insert:!${item.text}`;
+  return '';
+}
+
 function renderSteps() {
   stepsListEl.innerHTML = '';
   let stepNum = 1;
+  let depth = 0;
+
   currentMacro.steps.forEach((step, index) => {
     const row = document.createElement('div');
     row.className = 'step-row';
+
+    // Compute display depth
+    let displayDepth = depth;
+    if (step.type === 'elif' || step.type === 'else') {
+      displayDepth = Math.max(0, depth - 1);
+    } else if (step.type === 'end') {
+      depth = Math.max(0, depth - 1);
+      displayDepth = depth;
+    }
 
     // Step number
     const numEl = document.createElement('span');
@@ -117,130 +482,35 @@ function renderSteps() {
     }
     row.appendChild(numEl);
 
-    // Type selector
-    const typeSelect = document.createElement('select');
-    typeSelect.className = 'step-type-select';
-    for (const opt of ['Comment', 'Insert', 'CardMirror']) {
-      const o = document.createElement('option');
-      o.value = opt;
-      o.textContent = opt;
-      typeSelect.appendChild(o);
-    }
-    if (step.type === 'comment') typeSelect.value = 'Comment';
-    else if (step.type === 'insert-text' || step.type === 'insert-date') typeSelect.value = 'Insert';
-    else if (step.type === 'cardmirror') typeSelect.value = 'CardMirror';
-    typeSelect.addEventListener('change', () => {
-      changeStepType(index, typeSelect.value);
-    });
-    row.appendChild(typeSelect);
+    // Autocomplete wrapper
+    const wrapper = document.createElement('div');
+    wrapper.className = 'step-ac-wrapper';
 
-    // Content area (varies by type)
-    const contentEl = document.createElement('div');
-    contentEl.className = 'step-content';
+    const backdrop = document.createElement('div');
+    backdrop.className = 'step-ac-backdrop';
 
-    if (step.type === 'comment') {
-      const input = document.createElement('input');
-      input.type = 'text';
-      input.className = 'step-comment-input';
-      input.value = step.text;
-      input.placeholder = 'Comment...';
-      input.addEventListener('input', () => {
-        currentMacro.steps[index].text = input.value;
-        markDirty();
-      });
-      contentEl.appendChild(input);
-    } else if (step.type === 'insert-text') {
-      const subSelect = createSubtypeSelect('Text', index);
-      contentEl.appendChild(subSelect);
-      const input = document.createElement('input');
-      input.type = 'text';
-      input.value = step.content;
-      input.placeholder = 'Text to insert...';
-      input.addEventListener('input', () => {
-        currentMacro.steps[index].content = input.value;
-        markDirty();
-      });
-      contentEl.appendChild(input);
-    } else if (step.type === 'insert-date') {
-      const subSelect = createSubtypeSelect('Date', index);
-      contentEl.appendChild(subSelect);
+    const measure = document.createElement('span');
+    measure.className = 'ac-measure';
+    backdrop.appendChild(measure);
 
-      const input = document.createElement('input');
-      input.type = 'text';
-      input.value = step.format;
-      input.placeholder = 'm.dd.yy';
-      input.style.maxWidth = '140px';
+    const ghost = document.createElement('span');
+    ghost.className = 'ac-ghost';
+    backdrop.appendChild(ghost);
 
-      const preview = document.createElement('span');
-      preview.className = 'date-preview';
-      preview.textContent = formatDate(step.format, new Date());
+    wrapper.appendChild(backdrop);
 
-      input.addEventListener('input', () => {
-        currentMacro.steps[index].format = input.value;
-        preview.textContent = input.value ? formatDate(input.value, new Date()) : '';
-        markDirty();
-      });
-      contentEl.appendChild(input);
-      contentEl.appendChild(preview);
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.className = 'step-ac-input';
+    input.spellcheck = false;
+    input.value = stepToText(step);
+    wrapper.appendChild(input);
 
-      // Preset dropdown
-      const presetSelect = document.createElement('select');
-      presetSelect.className = 'step-subtype-select';
-      const defaultOpt = document.createElement('option');
-      defaultOpt.value = '';
-      defaultOpt.textContent = 'Presets...';
-      presetSelect.appendChild(defaultOpt);
-      for (const preset of PRESET_FORMATS) {
-        const o = document.createElement('option');
-        o.value = preset.format;
-        o.textContent = `${preset.label} → ${preset.example}`;
-        presetSelect.appendChild(o);
-      }
-      presetSelect.addEventListener('change', () => {
-        if (presetSelect.value) {
-          input.value = presetSelect.value;
-          currentMacro.steps[index].format = presetSelect.value;
-          preview.textContent = formatDate(presetSelect.value, new Date());
-          presetSelect.value = '';
-          markDirty();
-        }
-      });
-      contentEl.appendChild(presetSelect);
-    } else if (step.type === 'cardmirror') {
-      const display = document.createElement('div');
-      display.className = 'command-display';
+    const dropdown = document.createElement('div');
+    dropdown.className = 'step-ac-dropdown hidden';
+    wrapper.appendChild(dropdown);
 
-      const labelSpan = document.createElement('span');
-      labelSpan.className = 'command-label' + (step.label ? '' : ' empty');
-      labelSpan.textContent = step.label || 'Select command...';
-      display.appendChild(labelSpan);
-
-      // Show keybinding or unbound warning
-      if (step.label) {
-        const cmd = LABEL_TO_COMMAND[step.label.toLowerCase()];
-        if (cmd && cmd.defaultKey) {
-          const keySpan = document.createElement('span');
-          keySpan.className = 'cmd-key';
-          keySpan.textContent = formatKeybind(cmd.defaultKey);
-          display.appendChild(keySpan);
-        } else if (cmd && !cmd.defaultKey) {
-          const warn = document.createElement('span');
-          warn.className = 'unbound-warning';
-          warn.textContent = 'no keybind';
-          display.appendChild(warn);
-        }
-      }
-
-      const browseBtn = document.createElement('button');
-      browseBtn.className = 'btn-browse';
-      browseBtn.textContent = 'Browse...';
-      browseBtn.addEventListener('click', () => openCommandBrowser(index));
-      display.appendChild(browseBtn);
-
-      contentEl.appendChild(display);
-    }
-
-    row.appendChild(contentEl);
+    row.appendChild(wrapper);
 
     // Remove button
     const removeBtn = document.createElement('button');
@@ -254,113 +524,201 @@ function renderSteps() {
     });
     row.appendChild(removeBtn);
 
-    stepsListEl.appendChild(row);
-  });
-}
+    // Apply indentation
+    row.style.paddingLeft = (8 + displayDepth * 20) + 'px';
 
-function createSubtypeSelect(selected, stepIndex) {
-  const sel = document.createElement('select');
-  sel.className = 'step-subtype-select';
-  for (const opt of ['Text', 'Date']) {
-    const o = document.createElement('option');
-    o.value = opt;
-    o.textContent = opt;
-    sel.appendChild(o);
-  }
-  sel.value = selected;
-  sel.addEventListener('change', () => {
-    if (sel.value === 'Text') {
-      currentMacro.steps[stepIndex] = { type: 'insert-text', content: '' };
-    } else {
-      currentMacro.steps[stepIndex] = { type: 'insert-date', format: 'm.dd.yy' };
+    // Control flow styling
+    if (step.type === 'if' || step.type === 'elif' || step.type === 'else' || step.type === 'end') {
+      row.classList.add('step-row-control');
     }
-    markDirty();
-    renderSteps();
+
+    stepsListEl.appendChild(row);
+
+    // Attach event listeners
+    attachAutocompleteListeners(input, dropdown, measure, ghost, index);
+
+    // After row is complete, update depth
+    if (step.type === 'if') depth++;
   });
-  return sel;
 }
 
-function changeStepType(index, newType) {
-  if (newType === 'Comment') {
-    currentMacro.steps[index] = { type: 'comment', text: '' };
-  } else if (newType === 'Insert') {
-    currentMacro.steps[index] = { type: 'insert-text', content: '' };
-  } else if (newType === 'CardMirror') {
-    currentMacro.steps[index] = { type: 'cardmirror', label: '' };
-  }
-  markDirty();
-  renderSteps();
-}
+function attachAutocompleteListeners(input, dropdown, measure, ghost, stepIndex) {
+  let lastContext = null;
 
-// ---- Command Browser ----
+  function renderDropdown(context) {
+    dropdown.innerHTML = '';
+    context.items.forEach((item, i) => {
+      const el = document.createElement('div');
+      el.className = 'ac-item' + (i === dropdownSelectedIndex ? ' ac-active' : '');
 
-let commandBrowserTargetIndex = -1;
-
-function openCommandBrowser(stepIndex) {
-  commandBrowserTargetIndex = stepIndex;
-  commandSearch.value = '';
-  renderCommandList('');
-  commandDialog.showModal();
-  commandSearch.focus();
-}
-
-function renderCommandList(filter) {
-  commandListEl.innerHTML = '';
-  const lowerFilter = filter.toLowerCase();
-
-  for (const group of COMMAND_GROUPS) {
-    const matchingCmds = group.commands.filter(cmd =>
-      !lowerFilter || cmd.label.toLowerCase().includes(lowerFilter) || cmd.id.toLowerCase().includes(lowerFilter)
-    );
-    if (matchingCmds.length === 0) continue;
-
-    const header = document.createElement('div');
-    header.className = 'command-group-header';
-    header.textContent = group.group;
-    commandListEl.appendChild(header);
-
-    for (const cmd of matchingCmds) {
-      const item = document.createElement('div');
-      item.className = 'command-item';
-
-      const label = document.createElement('span');
-      label.className = 'cmd-label';
-      label.textContent = cmd.label;
-      item.appendChild(label);
-
-      if (cmd.defaultKey) {
-        const key = document.createElement('span');
-        key.className = 'cmd-key';
-        key.textContent = formatKeybind(cmd.defaultKey);
-        item.appendChild(key);
-      } else {
-        const unbound = document.createElement('span');
-        unbound.className = 'cmd-unbound';
-        unbound.textContent = 'no keybind';
-        item.appendChild(unbound);
+      if (item.type === 'prefix' || item.type === 'subtype') {
+        el.textContent = item.text;
+      } else if (item.type === 'command') {
+        const label = document.createElement('span');
+        label.textContent = item.text;
+        el.appendChild(label);
+        if (item.keybind) {
+          const key = document.createElement('span');
+          key.className = 'cmd-key';
+          key.textContent = formatKeybind(item.keybind);
+          el.appendChild(key);
+        } else {
+          const warn = document.createElement('span');
+          warn.className = 'ac-unbound';
+          warn.textContent = 'no keybind';
+          el.appendChild(warn);
+        }
+      } else if (item.type === 'preset') {
+        const label = document.createElement('span');
+        label.textContent = `${item.format} → ${item.example}`;
+        el.appendChild(label);
       }
 
-      item.addEventListener('click', () => {
-        currentMacro.steps[commandBrowserTargetIndex] = {
-          type: 'cardmirror',
-          label: cmd.label,
-        };
-        markDirty();
-        renderSteps();
-        commandDialog.close();
+      el.addEventListener('mousedown', (e) => {
+        e.preventDefault();
+        accept(item);
       });
-      commandListEl.appendChild(item);
+      el.addEventListener('mouseenter', () => {
+        dropdownSelectedIndex = i;
+        syncSelection();
+      });
+      dropdown.appendChild(el);
+    });
+  }
+
+  function syncSelection() {
+    dropdown.querySelectorAll('.ac-item').forEach((el, i) => {
+      el.classList.toggle('ac-active', i === dropdownSelectedIndex);
+    });
+    if (lastContext && lastContext.items[dropdownSelectedIndex]) {
+      ghost.textContent = ghostForItem(input.value, lastContext.items[dropdownSelectedIndex]);
     }
   }
+
+  function updateAutocomplete() {
+    const value = input.value;
+
+    // Sync step data on every keystroke
+    const step = textToStep(value);
+    if (step) {
+      currentMacro.steps[stepIndex] = step;
+      markDirty();
+    }
+
+    lastContext = getAutocompleteContext(value);
+    measure.textContent = value;
+
+    if (lastContext.items.length === 0) {
+      dropdown.classList.add('hidden');
+      ghost.textContent = '';
+      activeDropdownIndex = -1;
+      return;
+    }
+
+    dropdownSelectedIndex = 0;
+    activeDropdownIndex = stepIndex;
+    ghost.textContent = ghostForItem(value, lastContext.items[0]);
+    dropdown.classList.remove('hidden');
+    renderDropdown(lastContext);
+  }
+
+  function accept(item) {
+    const newValue = acceptedValue(item);
+    input.value = newValue;
+    measure.textContent = newValue;
+    const step = textToStep(newValue);
+    if (step) {
+      currentMacro.steps[stepIndex] = step;
+      markDirty();
+    }
+    dropdownSelectedIndex = 0;
+    updateAutocomplete();
+    input.focus();
+  }
+
+  function createStepAfter() {
+    currentMacro.steps.splice(stepIndex + 1, 0, { type: 'incomplete', raw: '' });
+    markDirty();
+    const focusIdx = stepIndex + 1;
+    renderSteps();
+    setTimeout(() => {
+      const inputs = stepsListEl.querySelectorAll('.step-ac-input');
+      if (inputs[focusIdx]) inputs[focusIdx].focus();
+    }, 0);
+  }
+
+  input.addEventListener('input', updateAutocomplete);
+
+  input.addEventListener('keydown', (e) => {
+    const dropdownOpen = !dropdown.classList.contains('hidden');
+    const items = lastContext ? lastContext.items : [];
+
+    if (e.key === 'ArrowDown' && dropdownOpen && items.length > 0) {
+      e.preventDefault();
+      dropdownSelectedIndex = (dropdownSelectedIndex + 1) % items.length;
+      syncSelection();
+      return;
+    }
+    if (e.key === 'ArrowUp' && dropdownOpen && items.length > 0) {
+      e.preventDefault();
+      dropdownSelectedIndex = (dropdownSelectedIndex - 1 + items.length) % items.length;
+      syncSelection();
+      return;
+    }
+    if (e.key === 'Escape' && dropdownOpen) {
+      e.preventDefault();
+      dropdown.classList.add('hidden');
+      ghost.textContent = '';
+      activeDropdownIndex = -1;
+      return;
+    }
+
+    if (e.key === 'Enter' || e.key === 'Tab') {
+      if (dropdownOpen && items.length > 0) {
+        const item = items[dropdownSelectedIndex];
+        const newVal = acceptedValue(item);
+        if (newVal !== input.value) {
+          e.preventDefault();
+          accept(item);
+          return;
+        }
+      }
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        createStepAfter();
+      }
+      return;
+    }
+
+    if (e.key === 'Backspace' && input.value === '' && currentMacro.steps.length > 1) {
+      e.preventDefault();
+      const focusIdx = Math.max(0, stepIndex - 1);
+      currentMacro.steps.splice(stepIndex, 1);
+      markDirty();
+      renderSteps();
+      setTimeout(() => {
+        const inputs = stepsListEl.querySelectorAll('.step-ac-input');
+        if (inputs[focusIdx]) inputs[focusIdx].focus();
+      }, 0);
+    }
+  });
+
+  input.addEventListener('focus', () => {
+    stepsListEl.querySelectorAll('.step-ac-dropdown').forEach(dd => {
+      if (dd !== dropdown) dd.classList.add('hidden');
+    });
+    updateAutocomplete();
+  });
+
+  input.addEventListener('blur', () => {
+    setTimeout(() => {
+      dropdown.classList.add('hidden');
+      ghost.textContent = '';
+      activeDropdownIndex = -1;
+    }, 150);
+  });
 }
 
-commandSearch.addEventListener('input', () => {
-  renderCommandList(commandSearch.value);
-});
-
-commandDialogClose.addEventListener('click', () => {
-  commandDialog.close();
-});
 
 // ---- Save / Rename / Delete ----
 
@@ -375,12 +733,38 @@ async function saveMacro() {
   }
   currentMacro.name = name;
 
+  // Check for incomplete steps
+  const incompleteSteps = currentMacro.steps.filter(step => {
+    if (step.type === 'incomplete') return true;
+    if (step.type === 'insert-text' && !step.content) return true;
+    if (step.type === 'insert-date' && !step.format) return true;
+    if (step.type === 'cardmirror' && !step.label) return true;
+    if (step.type === 'comment' && !step.text) return true;
+    return false;
+  });
+
+  if (incompleteSteps.length > 0) {
+    alert('Please complete all steps before saving. All steps must have content.');
+    return;
+  }
+
+  // Filter out incomplete steps
+  const completeSteps = currentMacro.steps.filter(step => step.type !== 'incomplete');
+
+  // Validate control flow nesting
+  try {
+    validateSteps(completeSteps);
+  } catch (err) {
+    alert(`Control flow validation error: ${err.message}`);
+    return;
+  }
+
   const filename = currentMacro.filename || `${sanitizeFilename(name)}.cmcm`;
 
   try {
     const content = serializeCmcm({
       name: currentMacro.name,
-      steps: currentMacro.steps,
+      steps: completeSteps,
     });
     await window.macroAPI.writeMacro(filename, content);
     currentMacro.filename = filename;
@@ -442,17 +826,42 @@ function formatKeybind(keyStr) {
 // ---- Event wiring ----
 
 btnNew.addEventListener('click', newMacro);
+document.getElementById('btn-new-empty').addEventListener('click', newMacro);
 btnAddStep.addEventListener('click', () => {
   if (!currentMacro) return;
-  currentMacro.steps.push({ type: 'insert-text', content: '' });
+  currentMacro.steps.push({ type: 'incomplete', raw: '' });
   markDirty();
   renderSteps();
-  // scroll to bottom
-  stepsListEl.lastElementChild?.scrollIntoView({ behavior: 'smooth' });
+  // Focus the new step input
+  setTimeout(() => {
+    const inputs = stepsListEl.querySelectorAll('.step-ac-input');
+    if (inputs[inputs.length - 1]) {
+      inputs[inputs.length - 1].focus();
+      // scroll to bottom
+      inputs[inputs.length - 1].scrollIntoView({ behavior: 'smooth' });
+    }
+  }, 0);
 });
 btnSave.addEventListener('click', saveMacro);
 btnRename.addEventListener('click', renameMacro);
 btnDelete.addEventListener('click', deleteMacro);
+
+macroNameInput.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') {
+    e.preventDefault();
+    if (currentMacro) {
+      if (currentMacro.steps.length === 0) {
+        currentMacro.steps.push({ type: 'incomplete', raw: '' });
+        markDirty();
+        renderSteps();
+      }
+      setTimeout(() => {
+        const inputs = stepsListEl.querySelectorAll('.step-ac-input');
+        if (inputs[0]) inputs[0].focus();
+      }, 0);
+    }
+  }
+});
 
 macroNameInput.addEventListener('input', () => {
   if (currentMacro) {

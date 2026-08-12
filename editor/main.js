@@ -117,6 +117,7 @@ ipcMain.handle('macros:read', async (_event, filename) => {
 ipcMain.handle('macros:write', async (_event, filename, content) => {
   const filepath = validateFilename(filename);
   await fs.promises.writeFile(filepath, content, 'utf-8');
+  await updateUserMacrosJson();
 });
 
 ipcMain.handle('macros:delete', async (_event, filename) => {
@@ -131,6 +132,7 @@ ipcMain.handle('macros:delete', async (_event, filename) => {
   });
   if (result.response === 0) {
     await fs.promises.unlink(filepath);
+    await updateUserMacrosJson();
     return true;
   }
   return false;
@@ -143,6 +145,7 @@ ipcMain.handle('macros:rename', async (_event, oldFilename, newFilename) => {
     throw new Error(`A macro named "${newFilename.replace('.cmcm', '')}" already exists`);
   }
   await fs.promises.rename(oldPath, newPath);
+  await updateUserMacrosJson();
 });
 
 ipcMain.handle('macros:exists', async (_event, filename) => {
@@ -351,6 +354,21 @@ function parseCmcmForBuild(text) {
   return name ? { name, steps } : null;
 }
 
+async function updateUserMacrosJson() {
+  ensureMacrosDir();
+  const files = (await fs.promises.readdir(MACROS_DIR)).filter(f => f.endsWith('.cmcm'));
+  const macros = [];
+  for (const file of files) {
+    try {
+      const content = await fs.promises.readFile(path.join(MACROS_DIR, file), 'utf-8');
+      const parsed = parseCmcmForBuild(content);
+      if (parsed) macros.push(parsed);
+    } catch (_) { /* skip */ }
+  }
+  const jsonPath = path.join(MACROS_DIR, 'user-macros.json');
+  await fs.promises.writeFile(jsonPath, JSON.stringify(macros, null, 2), 'utf-8');
+}
+
 ipcMain.handle('plugin:build', async () => {
   ensureMacrosDir();
   const files = (await fs.promises.readdir(MACROS_DIR)).filter(f => f.endsWith('.cmcm'));
@@ -373,5 +391,6 @@ ipcMain.handle('plugin:build', async () => {
   );
 
   await fs.promises.writeFile(templatePath, template, 'utf-8');
+  await updateUserMacrosJson();
   return { count: macros.length, names: macros.map(m => m.name) };
 });

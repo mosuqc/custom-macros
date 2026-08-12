@@ -475,13 +475,59 @@
     return name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'unnamed';
   }
 
+  // ---- User macro loading (file:// fetch from APPDATA) ----
+
+  function detectMacrosUrl() {
+    var href = window.location.href || '';
+    var m;
+    m = href.match(/file:\/\/\/([A-Z]:\/Users\/[^/]+)\//i);
+    if (m) return 'file:///' + m[1] + '/AppData/Roaming/custom-macros/macros/user-macros.json';
+    m = href.match(/file:\/\/\/(\/Users\/[^/]+)\//);
+    if (m) return 'file:///' + m[1] + '/Library/Application%20Support/custom-macros/macros/user-macros.json';
+    m = href.match(/file:\/\/\/(\/home\/[^/]+)\//);
+    if (m) return 'file:///' + m[1] + '/.local/share/custom-macros/macros/user-macros.json';
+    return null;
+  }
+
+  function loadUserMacros() {
+    var url = detectMacrosUrl();
+    if (!url) return [];
+    try {
+      var xhr = new XMLHttpRequest();
+      xhr.open('GET', url, false);
+      xhr.send();
+      if (xhr.responseText) return JSON.parse(xhr.responseText);
+    } catch (e) {}
+    return [];
+  }
+
   // ---- Registration ----
+
+  var macroRegistry = {};
+
+  var allMacros = MACROS.slice();
+  var userMacros = loadUserMacros();
+  for (var u = 0; u < userMacros.length; u++) {
+    var found = false;
+    for (var e = 0; e < allMacros.length; e++) {
+      if (allMacros[e].name === userMacros[u].name) {
+        allMacros[e] = userMacros[u];
+        found = true;
+        break;
+      }
+    }
+    if (!found) allMacros.push(userMacros[u]);
+  }
+
+  for (var r = 0; r < allMacros.length; r++) {
+    macroRegistry[allMacros[r].name] = allMacros[r];
+  }
 
   var seenIds = {};
   var commands = [];
 
-  for (var i = 0; i < MACROS.length; i++) {
-    var macro = MACROS[i];
+  for (var i = 0; i < allMacros.length; i++) {
+    var macro = allMacros[i];
     var baseId = 'custom-macros.run-' + sanitizeId(macro.name);
     var cmdId = baseId;
     var suffix = 2;
@@ -495,9 +541,13 @@
       label: 'Macro: ' + macro.name,
       keywords: ['macro', macro.name.toLowerCase()],
       defaultKey: null,
-      run: (function (m) {
-        return function (api) { executeMacro(m, api); };
-      })(macro),
+      run: (function (name) {
+        return function (api) {
+          var m = macroRegistry[name];
+          if (m) executeMacro(m, api);
+          else api.showToast('Macro "' + name + '" not found');
+        };
+      })(macro.name),
     });
   }
 
@@ -507,7 +557,13 @@
     keywords: ['macro', 'reload', 'refresh'],
     defaultKey: null,
     run: function (api) {
-      api.showToast('To update macros: rebuild plugin in the editor, then restart CardMirror.');
+      var reloaded = loadUserMacros();
+      var count = 0;
+      for (var i = 0; i < reloaded.length; i++) {
+        macroRegistry[reloaded[i].name] = reloaded[i];
+        count++;
+      }
+      api.showToast('Reloaded ' + count + ' macro(s). New macros require restart.');
     },
   });
 

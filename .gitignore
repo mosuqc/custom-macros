@@ -4,3 +4,5 @@ dist/
 .DS_Store
 Thumbs.db
 handoff.md
+MACRO_LOADING.md
+/package-lock.json

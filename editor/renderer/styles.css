@@ -178,6 +178,9 @@ html, body {
   padding-top: 80px;
   gap: 16px;
 }
+.empty-state[hidden] {
+  display: none;
+}
 
 .editor-panel {
   flex: 1;
@@ -186,6 +189,9 @@ html, body {
   padding: 8px 16px;
   gap: 12px;
   overflow: hidden;
+}
+.editor-panel[hidden] {
+  display: none;
 }
 
 /* Name row */
@@ -459,5 +465,147 @@ html, body {
 }
 .btn-new-macro:hover {
   background: var(--primary-hover);
+}
+
+/* Syntax Helper button */
+.btn-syntax {
+  width: 100%;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg);
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s;
+  margin-bottom: 8px;
+}
+.btn-syntax:hover {
+  background: var(--bg-step-hover);
+  border-color: var(--primary);
+  color: var(--primary);
+}
+.btn-syntax.active {
+  background: var(--bg-selected);
+  border-color: var(--primary);
+  color: var(--primary);
+}
+
+/* ---- Syntax Helper Panel ---- */
+.syntax-panel {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.syntax-panel[hidden] {
+  display: none;
+}
+
+.syntax-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.syntax-header h2 {
+  font-size: 16px;
+  font-weight: 700;
+}
+.btn-syntax-close {
+  width: 28px;
+  height: 28px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg);
+  color: var(--text);
+  font-size: 18px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+}
+.btn-syntax-close:hover {
+  background: var(--danger);
+  color: #fff;
+  border-color: var(--danger);
+}
+
+.syntax-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px 20px 32px;
+}
+
+.syntax-section {
+  margin-bottom: 24px;
+}
+.syntax-section h3 {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--primary);
+  margin-bottom: 8px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid var(--border);
+}
+.syntax-section p {
+  font-size: 13px;
+  line-height: 1.6;
+  margin-bottom: 8px;
+  color: var(--text);
+}
+.syntax-section pre {
+  font-family: var(--mono);
+  font-size: 12px;
+  line-height: 1.5;
+  background: var(--bg-step);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 10px 12px;
+  margin-bottom: 8px;
+  overflow-x: auto;
+  white-space: pre;
+  color: var(--text);
+}
+.syntax-section code {
+  font-family: var(--mono);
+  font-size: 12px;
+  background: var(--bg-step);
+  padding: 1px 5px;
+  border-radius: 3px;
+  color: var(--text);
+}
+
+.syntax-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-bottom: 8px;
+  font-size: 13px;
+}
+.syntax-table td {
+  padding: 5px 8px;
+  border-bottom: 1px solid var(--border);
+  vertical-align: top;
+}
+.syntax-table td:first-child {
+  white-space: nowrap;
+  width: 1%;
+}
+.syntax-table tr:last-child td {
+  border-bottom: none;
+}
+
+.element-list code {
+  display: inline-block;
+  margin: 2px 4px 2px 0;
+  padding: 2px 8px;
+  background: var(--bg-step);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  font-size: 12px;
 }
 

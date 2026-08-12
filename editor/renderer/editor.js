@@ -12,6 +12,9 @@ const emptyState = document.getElementById('empty-state');
 const editorPanel = document.getElementById('editor-panel');
 const macroNameInput = document.getElementById('macro-name');
 const stepsListEl = document.getElementById('steps-list');
+const syntaxPanel = document.getElementById('syntax-panel');
+const btnSyntax = document.getElementById('btn-syntax');
+const btnSyntaxClose = document.getElementById('btn-syntax-close');
 const btnNew = document.getElementById('btn-new');
 const btnAddStep = document.getElementById('btn-add-step');
 const btnSave = document.getElementById('btn-save');
@@ -76,6 +79,8 @@ function newMacro() {
 function showEditor() {
   emptyState.hidden = true;
   editorPanel.hidden = false;
+  syntaxPanel.hidden = true;
+  btnSyntax.classList.remove('active');
   macroNameInput.value = currentMacro.name;
   renderSteps();
   refreshSidebar();
@@ -84,8 +89,28 @@ function showEditor() {
 function hideEditor() {
   emptyState.hidden = false;
   editorPanel.hidden = true;
+  syntaxPanel.hidden = true;
+  btnSyntax.classList.remove('active');
   currentMacro = null;
   refreshSidebar();
+}
+
+function toggleSyntax() {
+  const showing = !syntaxPanel.hidden;
+  if (showing) {
+    syntaxPanel.hidden = true;
+    btnSyntax.classList.remove('active');
+    if (currentMacro) {
+      editorPanel.hidden = false;
+    } else {
+      emptyState.hidden = false;
+    }
+  } else {
+    syntaxPanel.hidden = false;
+    btnSyntax.classList.add('active');
+    emptyState.hidden = true;
+    editorPanel.hidden = true;
+  }
 }
 
 function markDirty() {
@@ -108,6 +133,7 @@ function stepToText(step) {
   if (step.type === 'while') return `WHILE ${serializeCondition(step.condition)}`;
   if (step.type === 'set') return `SET !${step.variable} = ${serializeExpression(step.expression)}`;
   if (step.type === 'insert-var') return `Insert:!${step.variable}`;
+  if (step.type === 'insert-newline') return 'Insert:Newline';
   if (step.type === 'insert-clipboard') return 'Insert:Clipboard:';
   if (step.type === 'insert-prompt') return `Insert:Prompt:${step.message}`;
   if (step.type === 'insert-counter') return `Insert:Counter:${step.name}`;
@@ -198,6 +224,7 @@ function textToStep(text) {
     }
   }
 
+  if (text === 'Insert:Newline' || text === 'Insert:Newline:') return { type: 'insert-newline' };
   if (text.startsWith('Insert:Clipboard:') || text === 'Insert:Clipboard') return { type: 'insert-clipboard' };
   if (text.startsWith('Insert:Prompt:') && text.length > 14) return { type: 'insert-prompt', message: text.slice(14) };
   if (text.startsWith('Insert:Counter:') && text.length > 15) return { type: 'insert-counter', name: text.slice(15).trim() };
@@ -361,6 +388,7 @@ function getAutocompleteContext(value) {
         items: [
           { text: 'Text:', type: 'subtype' },
           { text: 'Date:', type: 'subtype' },
+          { text: 'Newline', type: 'subtype' },
           { text: '!', type: 'subtype' },
           { text: 'Clipboard:', type: 'subtype' },
           { text: 'Prompt:', type: 'subtype' },
@@ -381,10 +409,11 @@ function getAutocompleteContext(value) {
     }
 
     // Partial subtype matching
-    if (!partial.includes(':')) {
+    if (!partial.includes(':') && lowerPartial !== 'newline') {
       const subtypes = [
         { text: 'Text:', match: 'text' },
         { text: 'Date:', match: 'date' },
+        { text: 'Newline', match: 'newline' },
         { text: 'Clipboard:', match: 'clipboard' },
         { text: 'Prompt:', match: 'prompt' },
         { text: 'Counter:', match: 'counter' },
@@ -426,6 +455,11 @@ function getAutocompleteContext(value) {
           type: 'preset',
         })),
       };
+    }
+
+    // Insert:Newline — no further autocomplete needed
+    if (lowerPartial === 'newline' || lowerPartial === 'newline:') {
+      return { phase: 'free', items: [] };
     }
 
     // Insert:Clipboard: — no further autocomplete needed
@@ -547,6 +581,7 @@ function acceptedValue(item) {
   if (item.type === 'prefix') return item.text;
   if (item.type === 'subtype') {
     if (item.text === '!') return 'Insert:!';
+    if (item.text === 'Newline') return 'Insert:Newline';
     return `Insert:${item.text}`;
   }
   if (item.type === 'command') return `CardMirror:${item.text}`;
@@ -675,6 +710,14 @@ function attachAutocompleteListeners(input, dropdown, measure, ghost, stepIndex)
         const label = document.createElement('span');
         label.textContent = `${item.format} → ${item.example}`;
         el.appendChild(label);
+      } else if (item.type === 'variable') {
+        el.textContent = '!' + item.text;
+      } else if (item.type === 'element') {
+        el.textContent = item.text;
+      } else if (item.type === 'set-hint') {
+        el.textContent = item.text;
+      } else {
+        el.textContent = item.text;
       }
 
       el.addEventListener('mousedown', (e) => {
@@ -930,6 +973,8 @@ function formatKeybind(keyStr) {
 
 // ---- Event wiring ----
 
+btnSyntax.addEventListener('click', toggleSyntax);
+btnSyntaxClose.addEventListener('click', toggleSyntax);
 btnNew.addEventListener('click', newMacro);
 document.getElementById('btn-new-empty').addEventListener('click', newMacro);
 btnAddStep.addEventListener('click', () => {

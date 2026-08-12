@@ -284,7 +284,8 @@ function parseCmcmForBuild(text) {
       steps.push({ type: 'comment', text: trimmed.slice(1).trim() });
       continue;
     }
-    const sc = trimmed.replace(/^\d+\.\s*/, '');
+    // Use trimStart to preserve trailing whitespace (matters for Insert:Text:)
+    const sc = line.trimStart().replace(/^\d+\.\s*/, '');
 
     // Handle control flow
     if (sc === 'ELSE') {
@@ -331,6 +332,8 @@ function parseCmcmForBuild(text) {
       if (/^[a-zA-Z_]\w*$/.test(varname)) {
         steps.push({ type: 'insert-var', variable: varname });
       }
+    } else if (sc === 'Insert:Newline' || sc === 'Insert:Newline:') {
+      steps.push({ type: 'insert-newline' });
     } else if (sc.startsWith('Insert:Clipboard:') || sc === 'Insert:Clipboard') {
       steps.push({ type: 'insert-clipboard' });
     } else if (sc.startsWith('Insert:Prompt:')) {

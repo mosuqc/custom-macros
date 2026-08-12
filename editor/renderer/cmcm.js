@@ -278,7 +278,8 @@ export function parseCmcm(text) {
       continue;
     }
 
-    const stepContent = trimmed.replace(/^\d+\.\s*/, '');
+    // Use trimStart to preserve trailing whitespace (matters for Insert:Text:)
+    const stepContent = raw.trimStart().replace(/^\d+\.\s*/, '');
 
     // Handle new step types first
     if (stepContent === 'ELSE') {
@@ -318,6 +319,8 @@ export function parseCmcm(text) {
         throw new ParseError(`Line ${i + 1}: invalid variable name "${varname}"`);
       }
       steps.push({ type: 'insert-var', variable: varname });
+    } else if (stepContent === 'Insert:Newline' || stepContent === 'Insert:Newline:') {
+      steps.push({ type: 'insert-newline' });
     } else if (stepContent.startsWith('Insert:Clipboard:') || stepContent === 'Insert:Clipboard') {
       steps.push({ type: 'insert-clipboard' });
     } else if (stepContent.startsWith('Insert:Prompt:')) {
@@ -398,6 +401,9 @@ export function serializeCmcm({ name, steps }) {
       lines.push(`${stepNum}. ${indent}WHILE ${serializeCondition(step.condition)}`);
       stepNum++;
       depth++;
+    } else if (step.type === 'insert-newline') {
+      lines.push(`${stepNum}. ${indent}Insert:Newline`);
+      stepNum++;
     } else if (step.type === 'insert-clipboard') {
       lines.push(`${stepNum}. ${indent}Insert:Clipboard:`);
       stepNum++;

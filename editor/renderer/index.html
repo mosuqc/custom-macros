@@ -16,6 +16,7 @@
       </div>
       <ul id="macro-list" class="macro-list"></ul>
       <div class="sidebar-footer">
+        <button id="btn-syntax" class="btn-syntax" title="Syntax reference for .cmcm macro language">Syntax Helper</button>
         <button id="btn-build" class="btn-build" title="Bake all macros into plugin.js for CardMirror">Build Plugin</button>
       </div>
     </aside>
@@ -24,6 +25,211 @@
       <div id="empty-state" class="empty-state">
         <p>Select a macro or create a new one</p>
         <button id="btn-new-empty" class="btn-new-macro">New Macro</button>
+      </div>
+
+      <div id="syntax-panel" class="syntax-panel" hidden>
+        <div class="syntax-header">
+          <h2>Syntax Helper</h2>
+          <button id="btn-syntax-close" class="btn-syntax-close" title="Close">&times;</button>
+        </div>
+        <div class="syntax-body">
+
+          <section class="syntax-section">
+            <h3>File Structure</h3>
+            <p>Every <code>.cmcm</code> file starts with a <code>NAME:</code> line, followed by numbered steps.</p>
+            <pre>NAME: MyMacro
+1. Insert:Text:hello world
+2. CardMirror:Bold
+3. Insert:Date:m.dd.yy</pre>
+            <p>Step numbers are cosmetic &mdash; order is determined by line position. Lines starting with <code>#</code> are comments.</p>
+          </section>
+
+          <section class="syntax-section">
+            <h3>Insert Steps</h3>
+            <table class="syntax-table">
+              <tr>
+                <td><code>Insert:Text:&lt;content&gt;</code></td>
+                <td>Insert literal text. Everything after the second colon is the content, including trailing spaces.</td>
+              </tr>
+              <tr>
+                <td><code>Insert:Date:&lt;format&gt;</code></td>
+                <td>Insert the current date using format tokens (see Date Tokens below).</td>
+              </tr>
+              <tr>
+                <td><code>Insert:Newline</code></td>
+                <td>Insert a line break (new paragraph).</td>
+              </tr>
+              <tr>
+                <td><code>Insert:Clipboard</code></td>
+                <td>Paste the current clipboard text content.</td>
+              </tr>
+              <tr>
+                <td><code>Insert:Prompt:&lt;message&gt;</code></td>
+                <td>Show a dialog asking the user for input, then insert their response. Cancelling aborts the macro.</td>
+              </tr>
+              <tr>
+                <td><code>Insert:Counter:&lt;name&gt;</code></td>
+                <td>Insert an auto-incrementing number. Each named counter persists across macro runs.</td>
+              </tr>
+              <tr>
+                <td><code>Insert:!&lt;varname&gt;</code></td>
+                <td>Insert the current value of a variable (see Variables below).</td>
+              </tr>
+            </table>
+          </section>
+
+          <section class="syntax-section">
+            <h3>Date Tokens</h3>
+            <p>Used inside <code>Insert:Date:</code> format strings. Tokens are replaced with the current date; all other characters pass through literally.</p>
+            <table class="syntax-table">
+              <tr><td><code>m</code></td><td>Month without leading zero (1&ndash;12)</td></tr>
+              <tr><td><code>mm</code></td><td>Month with leading zero (01&ndash;12)</td></tr>
+              <tr><td><code>d</code></td><td>Day without leading zero (1&ndash;31)</td></tr>
+              <tr><td><code>dd</code></td><td>Day with leading zero (01&ndash;31)</td></tr>
+              <tr><td><code>yy</code></td><td>Two-digit year (26)</td></tr>
+              <tr><td><code>yyyy</code></td><td>Four-digit year (2026)</td></tr>
+              <tr><td><code>Mon</code></td><td>Abbreviated month (Jan, Feb, ...)</td></tr>
+              <tr><td><code>MON</code></td><td>Abbreviated month uppercase (JAN, FEB, ...)</td></tr>
+              <tr><td><code>Month</code></td><td>Full month name (January, February, ...)</td></tr>
+              <tr><td><code>MONTH</code></td><td>Full month name uppercase (JANUARY, ...)</td></tr>
+            </table>
+            <p><strong>Example:</strong> <code>Insert:Date:m.dd.yy</code> &rarr; <code>8.11.26</code></p>
+          </section>
+
+          <section class="syntax-section">
+            <h3>CardMirror Commands</h3>
+            <p><code>CardMirror:&lt;label&gt;</code> fires a CardMirror command by its display label.</p>
+            <pre>CardMirror:Bold
+CardMirror:Apply Block Style
+CardMirror:Italic</pre>
+            <p>The autocomplete dropdown shows all 168 commands with their keybindings. Commands marked <em>no keybind</em> currently cannot be executed (pending a CardMirror API update).</p>
+          </section>
+
+          <section class="syntax-section">
+            <h3>Variables</h3>
+            <p>Variables are prefixed with <code>!</code> and set with the <code>SET</code> keyword.</p>
+            <pre>SET !name = "value"
+SET !count = 5
+SET !next = !count + 1
+Insert:!name</pre>
+            <table class="syntax-table">
+              <tr><td><code>SET !var = "text"</code></td><td>Set variable to a string</td></tr>
+              <tr><td><code>SET !var = 42</code></td><td>Set variable to a number</td></tr>
+              <tr><td><code>SET !var = !other</code></td><td>Copy value from another variable</td></tr>
+              <tr><td><code>SET !var = !x + 1</code></td><td>Arithmetic: add</td></tr>
+              <tr><td><code>SET !var = !x - 1</code></td><td>Arithmetic: subtract</td></tr>
+              <tr><td><code>SET !var = COUNT(...)</code></td><td>Count elements (see Counting below)</td></tr>
+            </table>
+          </section>
+
+          <section class="syntax-section">
+            <h3>Conditionals</h3>
+            <p>Use <code>IF</code> / <code>ELIF</code> / <code>ELSE</code> / <code>END</code> to run steps only when conditions are met.</p>
+            <pre>IF DocumentName.contains("2AC")
+  SET !speech = "1NC"
+ELIF DocumentName.contains("2NC")
+  SET !speech = "2AC"
+ELSE
+  SET !speech = "Arg"
+END</pre>
+          </section>
+
+          <section class="syntax-section">
+            <h3>Conditions</h3>
+            <p>Conditions are used inside <code>IF</code>, <code>ELIF</code>, and <code>WHILE</code> statements.</p>
+            <table class="syntax-table">
+              <tr>
+                <td><code>Element.contains("text")</code></td>
+                <td>True if the element's heading contains the given text</td>
+              </tr>
+              <tr>
+                <td><code>Nearby.Element.contains("text")</code></td>
+                <td>True if a nearby sibling element contains the text</td>
+              </tr>
+              <tr>
+                <td><code>Element.contains(!var)</code></td>
+                <td>Test against a variable's value instead of a literal</td>
+              </tr>
+              <tr>
+                <td><code>!var = "text"</code></td>
+                <td>Variable equals a string</td>
+              </tr>
+              <tr>
+                <td><code>!var &gt; 5</code></td>
+                <td>Variable is greater than a number</td>
+              </tr>
+              <tr>
+                <td><code>!var &lt; 10</code></td>
+                <td>Variable is less than a number</td>
+              </tr>
+            </table>
+            <p>Combine conditions with <code>AND</code> and <code>OR</code>:</p>
+            <pre>IF Pocket.contains("2AC") OR DocumentName.contains("2AC")
+IF !count > 0 AND !count < 10</pre>
+            <p><code>AND</code> binds tighter than <code>OR</code>: <code>A AND B OR C</code> means <code>(A AND B) OR C</code>.</p>
+          </section>
+
+          <section class="syntax-section">
+            <h3>Elements</h3>
+            <p>These are the structural element types you can reference in conditions and <code>COUNT</code> expressions:</p>
+            <p class="element-list">
+              <code>Pocket</code> <code>Hat</code> <code>Block</code> <code>Tag</code>
+              <code>Analytic</code> <code>Cite</code> <code>CiteParagraph</code>
+              <code>CardBody</code> <code>Text</code> <code>Underlined</code>
+              <code>Highlighted</code> <code>Emphasized</code> <code>DocumentName</code>
+            </p>
+            <p><strong>Note:</strong> <code>DocumentName</code> works now via the existing API. Other element queries (Pocket, Hat, Block, etc.) require a CardMirror API update and currently evaluate to false.</p>
+          </section>
+
+          <section class="syntax-section">
+            <h3>Loops</h3>
+            <p><code>REPEAT</code> runs a block a fixed number of times. <code>WHILE</code> runs as long as a condition is true.</p>
+            <pre>REPEAT 3
+  Insert:Text:hello
+END
+
+WHILE !count > 0
+  Insert:!count
+  SET !count = !count - 1
+END</pre>
+            <p>Use <code>BREAK</code> to exit the innermost loop early. Loops are capped at 10,000 iterations as a safety limit.</p>
+          </section>
+
+          <section class="syntax-section">
+            <h3>Counting</h3>
+            <p><code>COUNT</code> expressions count document elements. Use them inside <code>SET</code> to store the result.</p>
+            <table class="syntax-table">
+              <tr><td><code>COUNT(Blocks)</code></td><td>Count all Blocks in the document</td></tr>
+              <tr><td><code>COUNT(Nearby.Blocks)</code></td><td>Count sibling Blocks near the cursor</td></tr>
+              <tr><td><code>COUNT(Blocks.containing("text"))</code></td><td>Count Blocks whose heading contains "text"</td></tr>
+              <tr><td><code>COUNT(Nearby.Blocks.containing(!var))</code></td><td>Count nearby Blocks containing a variable's value</td></tr>
+            </table>
+            <p>Combine with arithmetic for numbering:</p>
+            <pre>SET !num = COUNT(Nearby.Blocks.containing(!speech)) + 1</pre>
+            <p><strong>Note:</strong> COUNT requires a CardMirror API update to return real values. Currently returns 0 &mdash; use <code>+ 1</code> as a floor.</p>
+          </section>
+
+          <section class="syntax-section">
+            <h3>Full Example</h3>
+            <pre>NAME: LBLBlock
+1. SET !speech = "Arg"
+2. IF DocumentName.contains("2AC")
+3.   SET !speech = "1NC"
+4. ELIF DocumentName.contains("2NC")
+5.   SET !speech = "2AC"
+6. ELIF DocumentName.contains("1AR")
+7.   SET !speech = "Arg"
+8. END
+9. SET !flowNum = COUNT(Nearby.Blocks.containing(!speech)) + 1
+10. CardMirror:Apply Block Style
+11. Insert:Text:AT:
+12. Insert:!speech
+13. Insert:Text: -
+14. Insert:!flowNum</pre>
+            <p>This macro applies a Block heading, then inserts a label like <code>AT:1NC -1</code>, auto-detecting the speech name from the document title and numbering the block based on nearby siblings.</p>
+          </section>
+
+        </div>
       </div>
 
       <div id="editor-panel" class="editor-panel" hidden>

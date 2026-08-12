@@ -245,6 +245,14 @@
     return '';
   }
 
+  function resolveElementText(element, nearby, api) {
+    if (element === 'DocumentName') {
+      var info = api.docInfo ? api.docInfo() : null;
+      return info ? info.docTitle : null;
+    }
+    return null;
+  }
+
   function evaluateAtomicCondition(atom, scope, api) {
     if (atom.type === 'compare') {
       var varVal = scope.hasOwnProperty(atom.variable) ? scope[atom.variable] : '';
@@ -255,8 +263,18 @@
       return false;
     }
     if (atom.type === 'contains') {
+      var searchVal = atom.value.type === 'string'
+        ? atom.value.value
+        : (scope.hasOwnProperty(atom.value.name) ? String(scope[atom.value.name]) : '');
+
+      var text = resolveElementText(atom.element, atom.nearby, api);
+      if (text !== null) {
+        return text.indexOf(searchVal) !== -1;
+      }
+
+      // Other elements require getContext (not yet in API)
       if (!api._queryWarned) {
-        api.showToast('Document queries require CardMirror API v2');
+        api.showToast('Document structure queries require API support (only DocumentName works currently)');
         api._queryWarned = true;
       }
       return false;
@@ -430,6 +448,19 @@
           } else if (step.type === 'insert-var') {
             var varValue = scope.hasOwnProperty(step.variable) ? scope[step.variable] : '';
             insertText(String(varValue));
+          } else if (step.type === 'insert-newline') {
+            var editor = findEditor();
+            if (!editor) throw new Error('No active editor found');
+            editor.focus();
+            var enterEvent = new KeyboardEvent('keydown', {
+              key: 'Enter',
+              code: 'Enter',
+              keyCode: 13,
+              which: 13,
+              bubbles: true,
+              cancelable: true,
+            });
+            editor.dispatchEvent(enterEvent);
           } else if (step.type === 'insert-clipboard') {
             navigator.clipboard.readText().then(function (text) {
               insertText(text);

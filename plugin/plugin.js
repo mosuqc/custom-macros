@@ -283,11 +283,12 @@
     var steps = macro.steps;
     var idx = 0;
     var scope = {};
-    var ifStack = [];
+    var blockStack = [];
+    var MAX_ITERATIONS = 10000;
 
     function isSkipping() {
-      for (var i = 0; i < ifStack.length; i++) {
-        if (ifStack[i].skipping) return true;
+      for (var i = 0; i < blockStack.length; i++) {
+        if (blockStack[i].skipping) return true;
       }
       return false;
     }
@@ -299,43 +300,121 @@
 
         if (step.type === 'comment') continue;
 
-        // Control flow steps always processed (even when skipping, to track nesting)
+        // ---- Control flow: always processed ----
+
         if (step.type === 'if') {
           if (isSkipping()) {
-            ifStack.push({ branchTaken: true, skipping: true });
+            blockStack.push({ kind: 'if', branchTaken: true, skipping: true });
           } else {
             var ifResult = evaluateCondition(step.condition, scope, api);
-            ifStack.push({ branchTaken: ifResult, skipping: !ifResult });
+            blockStack.push({ kind: 'if', branchTaken: ifResult, skipping: !ifResult });
           }
           continue;
         }
         if (step.type === 'elif') {
-          if (ifStack.length > 0) {
-            var topBlock = ifStack[ifStack.length - 1];
-            if (topBlock.branchTaken) {
-              topBlock.skipping = true;
+          if (blockStack.length > 0 && blockStack[blockStack.length - 1].kind === 'if') {
+            var top = blockStack[blockStack.length - 1];
+            if (top.branchTaken) {
+              top.skipping = true;
             } else {
               var elifResult = evaluateCondition(step.condition, scope, api);
-              topBlock.branchTaken = elifResult;
-              topBlock.skipping = !elifResult;
+              top.branchTaken = elifResult;
+              top.skipping = !elifResult;
             }
           }
           continue;
         }
         if (step.type === 'else') {
-          if (ifStack.length > 0) {
-            var topBlock = ifStack[ifStack.length - 1];
-            topBlock.skipping = topBlock.branchTaken;
-            topBlock.branchTaken = true;
+          if (blockStack.length > 0 && blockStack[blockStack.length - 1].kind === 'if') {
+            var top = blockStack[blockStack.length - 1];
+            top.skipping = top.branchTaken;
+            top.branchTaken = true;
           }
           continue;
         }
-        if (step.type === 'end') {
-          if (ifStack.length > 0) ifStack.pop();
+
+        if (step.type === 'repeat') {
+          if (isSkipping()) {
+            blockStack.push({ kind: 'repeat', skipping: true });
+          } else {
+            var countVal = Number(evaluateExpression(step.count, scope, api)) || 0;
+            if (countVal <= 0) {
+              blockStack.push({ kind: 'repeat', skipping: true });
+            } else {
+              blockStack.push({ kind: 'repeat', remaining: countVal, startIdx: idx, iterations: 0, skipping: false });
+            }
+          }
+          continue;
+        }
+        if (step.type === 'while') {
+          if (isSkipping()) {
+            blockStack.push({ kind: 'while', skipping: true });
+          } else {
+            var whileResult = evaluateCondition(step.condition, scope, api);
+            if (!whileResult) {
+              blockStack.push({ kind: 'while', skipping: true });
+            } else {
+              blockStack.push({ kind: 'while', condition: step.condition, startIdx: idx, iterations: 0, skipping: false });
+            }
+          }
           continue;
         }
 
-        // Executable steps skip if skipping
+        if (step.type === 'end') {
+          if (blockStack.length > 0) {
+            var top = blockStack[blockStack.length - 1];
+            if (top.kind === 'if') {
+              blockStack.pop();
+            } else if (top.kind === 'repeat') {
+              if (top.skipping) {
+                blockStack.pop();
+              } else {
+                top.remaining--;
+                top.iterations++;
+                if (top.remaining > 0 && top.iterations < MAX_ITERATIONS) {
+                  idx = top.startIdx;
+                } else {
+                  if (top.iterations >= MAX_ITERATIONS) {
+                    api.showToast('Macro "' + macro.name + '": REPEAT loop exceeded ' + MAX_ITERATIONS + ' iterations');
+                  }
+                  blockStack.pop();
+                }
+              }
+            } else if (top.kind === 'while') {
+              if (top.skipping) {
+                blockStack.pop();
+              } else {
+                top.iterations++;
+                if (top.iterations >= MAX_ITERATIONS) {
+                  api.showToast('Macro "' + macro.name + '": WHILE loop exceeded ' + MAX_ITERATIONS + ' iterations');
+                  blockStack.pop();
+                } else {
+                  var whileResult = evaluateCondition(top.condition, scope, api);
+                  if (whileResult) {
+                    idx = top.startIdx;
+                  } else {
+                    blockStack.pop();
+                  }
+                }
+              }
+            }
+          }
+          continue;
+        }
+
+        if (step.type === 'break') {
+          if (!isSkipping()) {
+            for (var b = blockStack.length - 1; b >= 0; b--) {
+              if (blockStack[b].kind === 'repeat' || blockStack[b].kind === 'while') {
+                blockStack[b].skipping = true;
+                break;
+              }
+            }
+          }
+          continue;
+        }
+
+        // ---- Executable steps: skip if skipping ----
         if (isSkipping()) continue;
 
         try {
@@ -351,6 +430,29 @@
           } else if (step.type === 'insert-var') {
             var varValue = scope.hasOwnProperty(step.variable) ? scope[step.variable] : '';
             insertText(String(varValue));
+          } else if (step.type === 'insert-clipboard') {
+            navigator.clipboard.readText().then(function (text) {
+              insertText(text);
+              if (idx < steps.length) {
+                setTimeout(runNext, 10);
+              }
+            }).catch(function (err) {
+              api.showToast('Macro "' + macro.name + '": clipboard read failed');
+            });
+            return;
+          } else if (step.type === 'insert-prompt') {
+            var response = window.prompt(step.message || 'Enter value:');
+            if (response === null) {
+              api.showToast('Macro "' + macro.name + '" cancelled.');
+              return;
+            }
+            insertText(response);
+          } else if (step.type === 'insert-counter') {
+            var storageKey = 'counter_' + step.name;
+            var stored = api.storage.get(storageKey);
+            var count = (parseInt(stored, 10) || 0) + 1;
+            insertText(String(count));
+            api.storage.set(storageKey, String(count));
           }
         } catch (err) {
           api.showToast('Macro "' + macro.name + '" failed: ' + err.message);

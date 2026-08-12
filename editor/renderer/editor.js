@@ -103,8 +103,14 @@ function stepToText(step) {
   if (step.type === 'elif') return `ELIF ${serializeCondition(step.condition)}`;
   if (step.type === 'else') return 'ELSE';
   if (step.type === 'end') return 'END';
+  if (step.type === 'break') return 'BREAK';
+  if (step.type === 'repeat') return `REPEAT ${serializeExpression(step.count)}`;
+  if (step.type === 'while') return `WHILE ${serializeCondition(step.condition)}`;
   if (step.type === 'set') return `SET !${step.variable} = ${serializeExpression(step.expression)}`;
   if (step.type === 'insert-var') return `Insert:!${step.variable}`;
+  if (step.type === 'insert-clipboard') return 'Insert:Clipboard:';
+  if (step.type === 'insert-prompt') return `Insert:Prompt:${step.message}`;
+  if (step.type === 'insert-counter') return `Insert:Counter:${step.name}`;
   if (step.type === 'insert-text') return `Insert:Text:${step.content}`;
   if (step.type === 'insert-date') return `Insert:Date:${step.format}`;
   if (step.type === 'cardmirror') return `CardMirror:${step.label}`;
@@ -121,6 +127,9 @@ function textToStep(text) {
   // Handle END
   if (text === 'END') return { type: 'end' };
 
+  // Handle BREAK
+  if (text === 'BREAK') return { type: 'break' };
+
   // Handle IF
   if (text.startsWith('IF ')) {
     try {
@@ -136,6 +145,26 @@ function textToStep(text) {
     try {
       const condition = parseCondition(text.slice(5));
       return { type: 'elif', condition };
+    } catch (e) {
+      return { type: 'incomplete', raw: text };
+    }
+  }
+
+  // Handle REPEAT
+  if (text.startsWith('REPEAT ')) {
+    try {
+      const countExpr = parseExpression(text.slice(7));
+      return { type: 'repeat', count: countExpr };
+    } catch (e) {
+      return { type: 'incomplete', raw: text };
+    }
+  }
+
+  // Handle WHILE
+  if (text.startsWith('WHILE ')) {
+    try {
+      const condition = parseCondition(text.slice(6));
+      return { type: 'while', condition };
     } catch (e) {
       return { type: 'incomplete', raw: text };
     }
@@ -169,6 +198,9 @@ function textToStep(text) {
     }
   }
 
+  if (text.startsWith('Insert:Clipboard:') || text === 'Insert:Clipboard') return { type: 'insert-clipboard' };
+  if (text.startsWith('Insert:Prompt:') && text.length > 14) return { type: 'insert-prompt', message: text.slice(14) };
+  if (text.startsWith('Insert:Counter:') && text.length > 15) return { type: 'insert-counter', name: text.slice(15).trim() };
   if (text.startsWith('Insert:Text:')) return { type: 'insert-text', content: text.slice(12) };
   if (text.startsWith('Insert:Date:') && text.length > 12) return { type: 'insert-date', format: text.slice(12) };
   if (text.startsWith('CardMirror:') && text.length > 11) return { type: 'cardmirror', label: text.slice(11) };
@@ -200,6 +232,9 @@ function getAutocompleteContext(value) {
         { text: 'ELIF ', type: 'prefix' },
         { text: 'ELSE', type: 'prefix' },
         { text: 'END', type: 'prefix' },
+        { text: 'REPEAT ', type: 'prefix' },
+        { text: 'WHILE ', type: 'prefix' },
+        { text: 'BREAK', type: 'prefix' },
         { text: 'CardMirror:', type: 'prefix' },
         { text: 'Insert:', type: 'prefix' },
         { text: '# ', type: 'prefix' },
@@ -276,6 +311,9 @@ function getAutocompleteContext(value) {
       { text: 'ELIF ', match: 'elif' },
       { text: 'ELSE', match: 'else' },
       { text: 'END', match: 'end' },
+      { text: 'REPEAT ', match: 'repeat' },
+      { text: 'WHILE ', match: 'while' },
+      { text: 'BREAK', match: 'break' },
       { text: 'CardMirror:', match: 'cardmirror' },
       { text: 'Insert:', match: 'insert' },
     ];
@@ -324,6 +362,9 @@ function getAutocompleteContext(value) {
           { text: 'Text:', type: 'subtype' },
           { text: 'Date:', type: 'subtype' },
           { text: '!', type: 'subtype' },
+          { text: 'Clipboard:', type: 'subtype' },
+          { text: 'Prompt:', type: 'subtype' },
+          { text: 'Counter:', type: 'subtype' },
         ],
       };
     }
@@ -344,6 +385,9 @@ function getAutocompleteContext(value) {
       const subtypes = [
         { text: 'Text:', match: 'text' },
         { text: 'Date:', match: 'date' },
+        { text: 'Clipboard:', match: 'clipboard' },
+        { text: 'Prompt:', match: 'prompt' },
+        { text: 'Counter:', match: 'counter' },
       ];
       const matching = subtypes.filter(s => s.match.startsWith(lowerPartial));
       if (matching.length > 0) {
@@ -383,6 +427,63 @@ function getAutocompleteContext(value) {
         })),
       };
     }
+
+    // Insert:Clipboard: — no further autocomplete needed
+    if (lowerPartial.startsWith('clipboard:') || lowerPartial === 'clipboard') {
+      return { phase: 'free', items: [] };
+    }
+
+    // Insert:Prompt: — free text for the message
+    if (lowerPartial.startsWith('prompt:')) {
+      return { phase: 'free', items: [] };
+    }
+
+    // Insert:Counter: — free text for the name
+    if (lowerPartial.startsWith('counter:')) {
+      return { phase: 'free', items: [] };
+    }
+  }
+
+  // Handle WHILE conditions (same as IF)
+  if (lowerValue.startsWith('while ')) {
+    const partial = value.slice(6);
+    const lowerPartial = partial.toLowerCase();
+
+    if (partial === '' || (!partial.includes('.') && !partial.startsWith('!'))) {
+      const matchingElems = VALID_ELEMENTS.filter(e => e.toLowerCase().startsWith(lowerPartial));
+      const items = matchingElems.map(elem => ({ text: elem, type: 'element', accepted: 'WHILE ' + elem }));
+      if ('nearby.'.startsWith(lowerPartial)) {
+        items.push({ text: 'Nearby.', type: 'element', accepted: 'WHILE Nearby.' });
+      }
+      if ('!'.startsWith(lowerPartial)) {
+        items.push({ text: '!', type: 'element', accepted: 'WHILE !' });
+      }
+      return { phase: 'if-element', items };
+    }
+
+    if (lowerPartial.startsWith('nearby.') && !lowerPartial.slice(7).includes('.')) {
+      const afterNearby = partial.slice(7);
+      const matchingElems = VALID_ELEMENTS.filter(e => e.toLowerCase().startsWith(afterNearby.toLowerCase()));
+      const items = matchingElems.map(elem => ({ text: elem, type: 'element', accepted: 'WHILE Nearby.' + elem }));
+      return { phase: 'if-element', items };
+    }
+
+    if (VALID_ELEMENTS.some(e => lowerPartial === e.toLowerCase() || lowerPartial === 'nearby.' + e.toLowerCase())) {
+      return { phase: 'free', items: [{ text: '.contains("', type: 'set-hint', accepted: value + '.contains("' }] };
+    }
+
+    return { phase: 'free', items: [] };
+  }
+
+  // Handle REPEAT expressions
+  if (lowerValue.startsWith('repeat ')) {
+    const partial = value.slice(7);
+    if (partial === '') {
+      const definedVars = getDefinedVariables();
+      const items = definedVars.map(v => ({ text: '!' + v, type: 'set-hint', accepted: 'REPEAT !' + v }));
+      return { phase: 'free', items };
+    }
+    return { phase: 'free', items: [] };
   }
 
   // Comment — free text
@@ -402,8 +503,9 @@ function ghostForItem(inputValue, item) {
     return '';
   }
   if (item.type === 'element') {
-    // For IF/ELIF element suggestions
-    const keywordLen = inputValue.toLowerCase().startsWith('elif ') ? 5 : 3;
+    // For IF/ELIF/WHILE element suggestions
+    const lv = inputValue.toLowerCase();
+    const keywordLen = lv.startsWith('while ') ? 6 : lv.startsWith('elif ') ? 5 : 3;
     const partial = inputValue.slice(keywordLen);
     if (item.text.toLowerCase().startsWith(partial.toLowerCase())) {
       return item.text.slice(partial.length);
@@ -528,7 +630,8 @@ function renderSteps() {
     row.style.paddingLeft = (8 + displayDepth * 20) + 'px';
 
     // Control flow styling
-    if (step.type === 'if' || step.type === 'elif' || step.type === 'else' || step.type === 'end') {
+    if (step.type === 'if' || step.type === 'elif' || step.type === 'else' || step.type === 'end' ||
+        step.type === 'repeat' || step.type === 'while' || step.type === 'break') {
       row.classList.add('step-row-control');
     }
 
@@ -538,7 +641,7 @@ function renderSteps() {
     attachAutocompleteListeners(input, dropdown, measure, ghost, index);
 
     // After row is complete, update depth
-    if (step.type === 'if') depth++;
+    if (step.type === 'if' || step.type === 'repeat' || step.type === 'while') depth++;
   });
 }
 
@@ -740,6 +843,8 @@ async function saveMacro() {
     if (step.type === 'insert-date' && !step.format) return true;
     if (step.type === 'cardmirror' && !step.label) return true;
     if (step.type === 'comment' && !step.text) return true;
+    if (step.type === 'insert-prompt' && !step.message) return true;
+    if (step.type === 'insert-counter' && !step.name) return true;
     return false;
   });
 

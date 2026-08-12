@@ -298,6 +298,18 @@ function parseCmcmForBuild(text) {
       if (condition) {
         steps.push({ type: 'elif', condition });
       }
+    } else if (sc === 'BREAK') {
+      steps.push({ type: 'break' });
+    } else if (sc.startsWith('REPEAT ')) {
+      const countExpr = parseExpressionForBuild(sc.slice(7));
+      if (countExpr) {
+        steps.push({ type: 'repeat', count: countExpr });
+      }
+    } else if (sc.startsWith('WHILE ')) {
+      const condition = parseConditionForBuild(sc.slice(6));
+      if (condition) {
+        steps.push({ type: 'while', condition });
+      }
     } else if (sc.startsWith('SET !')) {
       const rest = sc.slice(5);
       const eqIdx = rest.indexOf('=');
@@ -315,6 +327,18 @@ function parseCmcmForBuild(text) {
       const varname = sc.slice(8);
       if (/^[a-zA-Z_]\w*$/.test(varname)) {
         steps.push({ type: 'insert-var', variable: varname });
+      }
+    } else if (sc.startsWith('Insert:Clipboard:') || sc === 'Insert:Clipboard') {
+      steps.push({ type: 'insert-clipboard' });
+    } else if (sc.startsWith('Insert:Prompt:')) {
+      const message = sc.slice(14);
+      if (message) {
+        steps.push({ type: 'insert-prompt', message });
+      }
+    } else if (sc.startsWith('Insert:Counter:')) {
+      const name = sc.slice(15).trim();
+      if (name) {
+        steps.push({ type: 'insert-counter', name });
       }
     } else if (sc.startsWith('Insert:Text:')) {
       steps.push({ type: 'insert-text', content: sc.slice(12) });

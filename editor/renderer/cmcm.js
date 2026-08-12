@@ -207,7 +207,7 @@ export function serializeCondition(ast) {
   return orParts.join(' OR ');
 }
 
-// Validate IF/ELIF/ELSE/END nesting
+// Validate IF/ELIF/ELSE/END nesting and REPEAT/WHILE/END nesting
 export function validateSteps(steps) {
   const stack = [];
   for (const step of steps) {
@@ -223,14 +223,27 @@ export function validateSteps(steps) {
         throw new ParseError('ELSE without matching IF');
       }
       stack[stack.length - 1] = 'else';
+    } else if (step.type === 'repeat') {
+      stack.push('repeat');
+    } else if (step.type === 'while') {
+      stack.push('while');
     } else if (step.type === 'end') {
       if (stack.length === 0) {
-        throw new ParseError('END without matching IF');
+        throw new ParseError('END without matching IF, REPEAT, or WHILE');
       }
       stack.pop();
+    } else if (step.type === 'break') {
+      const hasLoop = stack.some(s => s === 'repeat' || s === 'while');
+      if (!hasLoop) {
+        throw new ParseError('BREAK outside of REPEAT or WHILE loop');
+      }
     }
   }
   if (stack.length > 0) {
+    const top = stack[stack.length - 1];
+    if (top === 'repeat' || top === 'while') {
+      throw new ParseError('Unclosed ' + top.toUpperCase() + ' block');
+    }
     throw new ParseError('Unclosed IF block');
   }
 }
@@ -272,12 +285,20 @@ export function parseCmcm(text) {
       steps.push({ type: 'else' });
     } else if (stepContent === 'END') {
       steps.push({ type: 'end' });
+    } else if (stepContent === 'BREAK') {
+      steps.push({ type: 'break' });
     } else if (stepContent.startsWith('IF ')) {
       const condition = parseCondition(stepContent.slice(3));
       steps.push({ type: 'if', condition });
     } else if (stepContent.startsWith('ELIF ')) {
       const condition = parseCondition(stepContent.slice(5));
       steps.push({ type: 'elif', condition });
+    } else if (stepContent.startsWith('REPEAT ')) {
+      const countExpr = parseExpression(stepContent.slice(7));
+      steps.push({ type: 'repeat', count: countExpr });
+    } else if (stepContent.startsWith('WHILE ')) {
+      const condition = parseCondition(stepContent.slice(6));
+      steps.push({ type: 'while', condition });
     } else if (stepContent.startsWith('SET !')) {
       const rest = stepContent.slice(5); // Remove 'SET !'
       const eqIdx = rest.indexOf('=');
@@ -297,6 +318,20 @@ export function parseCmcm(text) {
         throw new ParseError(`Line ${i + 1}: invalid variable name "${varname}"`);
       }
       steps.push({ type: 'insert-var', variable: varname });
+    } else if (stepContent.startsWith('Insert:Clipboard:') || stepContent === 'Insert:Clipboard') {
+      steps.push({ type: 'insert-clipboard' });
+    } else if (stepContent.startsWith('Insert:Prompt:')) {
+      const message = stepContent.slice('Insert:Prompt:'.length);
+      if (!message) {
+        throw new ParseError(`Line ${i + 1}: prompt message cannot be empty`);
+      }
+      steps.push({ type: 'insert-prompt', message });
+    } else if (stepContent.startsWith('Insert:Counter:')) {
+      const name = stepContent.slice('Insert:Counter:'.length).trim();
+      if (!name) {
+        throw new ParseError(`Line ${i + 1}: counter name cannot be empty`);
+      }
+      steps.push({ type: 'insert-counter', name });
     } else if (stepContent.startsWith('Insert:Text:')) {
       const content = stepContent.slice('Insert:Text:'.length);
       steps.push({ type: 'insert-text', content });
@@ -351,6 +386,26 @@ export function serializeCmcm({ name, steps }) {
       depth = Math.max(0, depth - 1);
       const endIndent = ' '.repeat(depth * 2);
       lines.push(`${stepNum}. ${endIndent}END`);
+      stepNum++;
+    } else if (step.type === 'break') {
+      lines.push(`${stepNum}. ${indent}BREAK`);
+      stepNum++;
+    } else if (step.type === 'repeat') {
+      lines.push(`${stepNum}. ${indent}REPEAT ${serializeExpression(step.count)}`);
+      stepNum++;
+      depth++;
+    } else if (step.type === 'while') {
+      lines.push(`${stepNum}. ${indent}WHILE ${serializeCondition(step.condition)}`);
+      stepNum++;
+      depth++;
+    } else if (step.type === 'insert-clipboard') {
+      lines.push(`${stepNum}. ${indent}Insert:Clipboard:`);
+      stepNum++;
+    } else if (step.type === 'insert-prompt') {
+      lines.push(`${stepNum}. ${indent}Insert:Prompt:${step.message}`);
+      stepNum++;
+    } else if (step.type === 'insert-counter') {
+      lines.push(`${stepNum}. ${indent}Insert:Counter:${step.name}`);
       stepNum++;
     } else if (step.type === 'set') {
       lines.push(`${stepNum}. ${indent}SET !${step.variable} = ${serializeExpression(step.expression)}`);
